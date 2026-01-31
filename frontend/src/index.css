@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+.glass-panel {
+  @apply bg-card backdrop-blur-md border border-border rounded-xl shadow-xl;
+}
+
+.glass-button {
+  @apply px-4 py-2 rounded-lg font-medium transition-all duration-200;
+  @apply bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20;
+}
+
+.glass-input {
+  @apply bg-secondary/50 border border-border rounded-lg px-4 py-2 text-foreground placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50;
+}
+
+/* Custom Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slideIn {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* Mobile Touch Improvements */
+@media (max-width: 768px) {
+  .glass-input,  .glass-button, button {
+    min-height: 44px; /* iOS touch target minimum */
+  }
+  
+  .glass-panel {
+    @apply rounded-lg p-4; /* Smaller padding on mobile */
+  }
+}
+
+/* Smooth scrolling for dropdowns */
+.overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+}

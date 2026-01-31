@@ -1,0 +1,11 @@
+VUELO CON SEAT MAP PARA DEMO
+============================
+
+Aerolínea: ZZ
+Ruta: MEX → CUN
+Fecha: 2026-01-11
+Precio: $26.73 USD
+Offer ID: DUFFEL::off_0000B1BGwJhaWDhwQnL4WB::pas_0000B1BGwJSLQtVxfWCtmE
+
+Seat Maps: 1
+Asientos disponibles: Sí

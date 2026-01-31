@@ -1,0 +1,73 @@
+
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>E-Ticket DEX7OQ</title>
+            <style>
+                body { font-family: 'Courier New', Courier, monospace; background: #f4f4f4; padding: 40px; }
+                .ticket { max-width: 600px; margin: 0 auto; background: white; padding: 40px; border: 1px solid #ddd; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
+                .header { border-bottom: 2px solid #000; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center; }
+                .logo { font-weight: bold; font-size: 24px; letter-spacing: -1px; }
+                .pnr { font-size: 14px; color: #666; }
+                .flight-info { display: flex; justify-content: space-between; margin-bottom: 40px; }
+                .route { font-size: 48px; font-weight: bold; line-height: 1; }
+                .date { font-size: 14px; color: #666; margin-top: 10px; }
+                .details { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; border-top: 1px solid #eee; pt-4; }
+                .label { font-size: 10px; text-transform: uppercase; color: #999; margin-bottom: 4px; }
+                .value { font-size: 16px; font-weight: bold; }
+                .footer { margin-top: 40px; border-top: 2px solid #000; padding-top: 20px; font-size: 12px; color: #999; text-align: center; }
+                .barcode { margin-top: 20px; height: 40px; background: repeating-linear-gradient(90deg, #000, #000 2px, #fff 2px, #fff 4px); width: 100%; opacity: 0.7; }
+            </style>
+        </head>
+        <body>
+            <div class="ticket">
+                <div class="header">
+                    <div class="logo">Biajez / Duffel</div>
+                    <div class="pnr">PNR: DEX7OQ</div>
+                </div>
+                
+                <div class="flight-info">
+                    <div>
+                        <div class="route">MEX → MAD</div>
+                        <div class="date">2026-02-07</div>
+                    </div>
+                </div>
+                
+                <div class="details">
+                    <div>
+                        <div class="label">Passenger</div>
+                        <div class="value">WhatsApp User</div>
+                    </div>
+                    <div>
+                        <div class="label">Flight</div>
+                        <div class="value">IB 3177</div>
+                    </div>
+                    <div>
+                        <div class="label">Departure</div>
+                        <div class="value">04:38</div>
+                    </div>
+                    <div>
+                        <div class="label">Arrival</div>
+                        <div class="value">00:18</div>
+                    </div>
+                    <div>
+                        <div class="label">Class</div>
+                        <div class="value">Economy</div>
+                    </div>
+                    <div>
+                        <div class="label">Total Paid</div>
+                        <div class="value">$5958.9</div>
+                    </div>
+                </div>
+                
+                <div class="barcode"></div>
+                
+                <div class="footer">
+                    Confirmed via Duffel API • Electronic Ticket
+                </div>
+            </div>
+        </body>
+        </html>
+        
