@@ -1,0 +1,17 @@
+{
+    "framework": "vite",
+    "buildCommand": "npm run build",
+    "outputDirectory": "dist",
+    "installCommand": "npm install",
+    "devCommand": "npm run dev",
+    "env": {
+        "VITE_API_URL": {
+            "description": "Backend API URL",
+            "value": "https://biajez-ah0g.onrender.com"
+        },
+        "VITE_STRIPE_PUBLISHABLE_KEY": {
+            "description": "Stripe publishable key for payments",
+            "value": "pk_test_51SLzdO0ikaK8tETEV1QaPWaoXQeps3u4L8jW8q2mElOEBGr35hBrHbWNRfzyMy7sYLR2AlmjAOoC4It272gJZM8100ppJLap4v"
+        }
+    }
+}
