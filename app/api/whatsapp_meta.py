@@ -404,7 +404,16 @@ Tu asistente de viajes ejecutivos 🌍✈️
         # Hotel selection moved above to prevent AI interception
         
         # Check if confirming booking
-        if incoming_msg.lower() in ['si', 'sí', 'yes'] and session.get("selected_flight"):
+        # DEBUG: Log session state to diagnose confirmation issues
+        if incoming_msg.lower() in ['si', 'sí', 'yes', 'confirmar']:
+            print(f"🔍 DEBUG Confirmation attempt:")
+            print(f"   - from_number: {from_number}")
+            print(f"   - incoming_msg: {incoming_msg}")
+            print(f"   - selected_flight exists: {bool(session.get('selected_flight'))}")
+            print(f"   - selected_hotel exists: {bool(session.get('selected_hotel'))}")
+            print(f"   - session keys: {list(session.keys())}")
+
+        if incoming_msg.lower() in ['si', 'sí', 'yes', 'confirmar'] and session.get("selected_flight"):
             # Check if user is authorized to make bookings
             if not is_authorized(from_number):
                 response_text = "❌ *No autorizado*\n\n"
@@ -1015,11 +1024,12 @@ Tu asistente de viajes ejecutivos 🌍✈️
             # When OpenAI responds with just text (no tool calls), it means either:
             # 1. It's asking for more info from user (e.g., multidestino details)
             # 2. It's a general response
-            # In both cases, clear old pending state to prevent stale results mixing
-            session.pop("pending_flights", None)
-            session.pop("pending_hotels", None)
-            session_manager.save_session(from_number, session)
-            
+            # IMPORTANT: Do NOT clear pending_flights/pending_hotels here!
+            # This was causing confirmation to fail because data was cleared
+            # before user could select/confirm. Only clear after explicit confirmation or cancel.
+            # session.pop("pending_flights", None)  # REMOVED - was causing bug
+            # session.pop("pending_hotels", None)   # REMOVED - was causing bug
+
             session["messages"].append({"role": "assistant", "content": response_message.content})
             session_manager.save_session(from_number, session)  # Save AI response
             response_text = response_message.content
@@ -1034,6 +1044,18 @@ Tu asistente de viajes ejecutivos 🌍✈️
         print(f"❌ WhatsApp webhook error: {e}")
         import traceback
         traceback.print_exc()
+
+        # CRITICAL FIX: Send error message to user so they know something went wrong
+        try:
+            if 'from_number' in dir():
+                error_msg = "⚠️ *Error temporal*\n\n"
+                error_msg += "Hubo un problema procesando tu mensaje.\n"
+                error_msg += "Por favor intenta de nuevo en unos segundos.\n\n"
+                error_msg += f"_Error: {str(e)[:100]}_"
+                send_whatsapp_message(from_number, error_msg)
+        except:
+            pass  # Don't fail if we can't send the error message
+
         return {"status": "error", "message": str(e)}
 
 def send_whatsapp_message(to_number: str, text: str):
