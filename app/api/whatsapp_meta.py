@@ -779,6 +779,15 @@ Tu asistente de viajes ejecutivos 🌍✈️
             return {"status": "ok"}
         
         # Ayuda
+        msg_lower = incoming_msg.lower().strip()
+        
+        # EMERGENCY RESET COMMAND
+        if msg_lower in ["reset", "reiniciar", "borrar", "limpiar"]:
+            session_manager.delete_session(from_number)
+            send_whatsapp_message(from_number, "✅ Tu sesión ha sido reiniciada. ¿A dónde quieres viajar?")
+            return {"status": "reset"}
+
+        # Ayuda
         if msg_lower in ['/ayuda', 'ayuda', 'help', 'comandos']:
             response_text = "🤖 *Comandos disponibles:*\n\n"
             response_text += "✈️ *Vuelos:*\n"
