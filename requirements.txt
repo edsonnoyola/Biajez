@@ -65,4 +65,5 @@ xxhash==3.6.0
 zstandard==0.25.0
 twilio
 redis
+anthropic>=0.39.0
 
