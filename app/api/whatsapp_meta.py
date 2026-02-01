@@ -844,6 +844,28 @@ Tu asistente de viajes ejecutivos 🌍✈️
                         session["hotel_dates"] = {"checkin": checkin, "checkout": checkout}
                         session_manager.save_session(from_number, session)
                 
+                elif function_name == "search_multicity_flights":
+                    # Multi-city flight search
+                    segments = arguments.get("segments", [])
+                    cabin = arguments.get("cabin", "ECONOMY")
+                    
+                    print(f"DEBUG: Multi-city search with {len(segments)} segments")
+                    
+                    # Use flight aggregator
+                    flights = await flight_aggregator.search_multicity(
+                        segments=segments,
+                        cabin_class=cabin
+                    )
+                    
+                    # Save to session and serialize for OpenAI
+                    if flights:
+                        session["pending_flights"] = flights[:5]
+                        session_manager.save_session(from_number, session)
+                        # Serialize flight objects properly
+                        tool_result = [f.dict() for f in flights[:5]]
+                    else:
+                        tool_result = []
+                
                 
                 session["messages"].append({
                     "role": "tool",
