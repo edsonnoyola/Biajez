@@ -437,10 +437,17 @@ Tu asistente de viajes ejecutivos 🌍✈️
                 db.add(profile)
                 db.commit()
             
-            # Get flight details
-            offer_id = selected_flight.get("id")
-            provider = selected_flight.get("provider", "duffel")
-            price = selected_flight.get("price", "0.00")
+            # Get flight details - convert to dict if it's an object
+            if hasattr(selected_flight, 'dict'):
+                flight_dict = selected_flight.dict()
+            elif isinstance(selected_flight, dict):
+                flight_dict = selected_flight
+            else:
+                flight_dict = selected_flight.__dict__ if hasattr(selected_flight, '__dict__') else {}
+            
+            offer_id = flight_dict.get("id")
+            provider = flight_dict.get("provider", "duffel")
+            price = flight_dict.get("price", "0.00")
             
             try:
                 # MOCK BOOKING FOR TEST FLIGHTS (avoid Duffel 422 errors)
@@ -452,11 +459,11 @@ Tu asistente de viajes ejecutivos 🌍✈️
                     import string
                     pnr = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
                     
-                    # Get flight details
-                    segments = selected_flight.get("segments", [])
+                    # Get flight details from dict
+                    segments = flight_dict.get("segments", [])
                     origin = segments[0].get("departure_iata", "N/A") if segments else "N/A"
                     destination = segments[-1].get("arrival_iata", "N/A") if segments else "N/A"
-                    airline = selected_flight.get("airline", "Mock Airlines")
+                    airline = flight_dict.get("airline", "Mock Airlines")
                     
                     response_text = f"✅ *¡Vuelo reservado!*\n\n"
                     response_text += f"📝 PNR: {pnr}\n"
@@ -792,33 +799,32 @@ Tu asistente de viajes ejecutivos 🌍✈️
         
         # Clean up incomplete tool_calls from previous sessions
         # This prevents OpenAI errors when tool_calls weren't completed
-        cleaned_messages = []
-        for i, msg in enumerate(session["messages"]):
-            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+        # cleaned_messages = []
+        # for i, msg in enumerate(session["messages"]):
+            # if msg.get("role") == "assistant" and msg.get("tool_calls"):
                 # Check if all tool_calls have responses in following messages
-                tool_call_ids = [tc["id"] for tc in msg.get("tool_calls", [])]
-                has_responses = all(
-                    any(m.get("role") == "tool" and m.get("tool_call_id") == tcid 
-                        for m in session["messages"][i+1:])
-                    for tcid in tool_call_ids
-                )
-                if has_responses:
-                    cleaned_messages.append(msg)
-                else:
+                # tool_call_ids = [tc["id"] for tc in msg.get("tool_calls", [])]
+                # has_responses = all(
+                    # any(m.get("role") == "tool" and m.get("tool_call_id") == tcid 
+                        # for m in session["messages"][i+1:])
+                    # for tcid in tool_call_ids
+                # )
+                # if has_responses:
+                    # cleaned_messages.append(msg)
+                # else:
                     # Skip this incomplete assistant message with tool_calls
-                    print(f"⚠️  Skipping incomplete tool_calls: {tool_call_ids}")
-            elif msg.get("role") == "tool":
+                    # print(f"⚠️  Skipping incomplete tool_calls: {tool_call_ids}")
+            # elif msg.get("role") == "tool":
                 # Only keep tool messages if their tool_call_id is in cleaned_messages
-                tool_call_id = msg.get("tool_call_id")
-                if any(tc["id"] == tool_call_id 
-                       for m in cleaned_messages 
-                       if m.get("role") == "assistant" and m.get("tool_calls")
-                       for tc in m.get("tool_calls", [])):
-                    cleaned_messages.append(msg)
-            else:
-                cleaned_messages.append(msg)
-        
-        session["messages"] = cleaned_messages
+                # tool_call_id = msg.get("tool_call_id")
+                # if any(tc["id"] == tool_call_id 
+                       # for m in cleaned_messages 
+                       # if m.get("role") == "assistant" and m.get("tool_calls")
+                       # for tc in m.get("tool_calls", [])):
+                    # cleaned_messages.append(msg)
+            # else:
+                # cleaned_messages.append(msg)
+         #         # session["messages"] = cleaned_messages
         session_manager.save_session(from_number, session)
         
         response_message = await agent.chat(session["messages"], "")
