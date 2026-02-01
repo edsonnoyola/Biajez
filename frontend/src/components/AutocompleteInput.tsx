@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X } from 'lucide-react';
+import { X } from 'lucide-react';
 
 interface Airport {
     code: string;

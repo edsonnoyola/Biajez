@@ -1,5 +1,5 @@
 import React from 'react';
-import { MapPin, Star, Wifi, Coffee, UtensilsCrossed, Dumbbell, ParkingCircle, Users } from 'lucide-react';
+import { MapPin, Star, Wifi, Coffee, UtensilsCrossed, Dumbbell, ParkingCircle } from 'lucide-react';
 
 interface HotelOffer {
     name: string;

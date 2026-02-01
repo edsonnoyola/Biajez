@@ -1,192 +1,83 @@
-# 🚀 Biajez Travel Platform - README
+# Biajez - Executive Travel OS 🌍✈️
 
-## Sistema de Reservas de Viajes con IA
+AI-powered travel booking platform with WhatsApp integration, real-time flight/hotel search, and intelligent booking management.
 
-Plataforma de reservas de vuelos impulsada por IA que integra múltiples proveedores para ofrecer las mejores opciones de viaje.
+## Features
 
----
+- ✈️ **Flight Search & Booking** - Amadeus + Duffel integration
+- 🏨 **Hotel Booking** - LiteAPI integration  
+- 📱 **WhatsApp Bot** - Full conversational AI with GPT-4o
+- 💳 **Payment Processing** - Stripe integration
+- 🔐 **User Profiles** - Preferences, loyalty programs, travel documents
+- 🌐 **Multi-language** - Spanish & English support
 
-## ✨ **Features**
+## Tech Stack
 
-- 🤖 **AI Conversacional** - Chat natural para buscar y reservar vuelos
-- ✈️ **Multi-Proveedor** - Duffel + Amadeus = 30+ vuelos por búsqueda
-- 🎯 **Scoring Inteligente** - Prioriza vuelos directos y mejores precios
-- 💳 **Compras Reales** - PNR confirmados y tickets generados
-- 📱 **Responsive** - Funciona en desktop y móvil
+**Frontend:**
+- React 18 + TypeScript
+- Vite
+- TailwindCSS
+- Axios
 
----
+**Backend:**
+- FastAPI (Python)
+- PostgreSQL + SQLAlchemy
+- Redis (sessions & rate limiting)
+- OpenAI GPT-4o
 
-## 🚀 **Quick Start**
+**APIs:**
+- Amadeus (flights, hotels)
+- Duffel (flights)
+- LiteAPI (hotel bookings)
+- Stripe (payments)
+- WhatsApp Business API
+- Resend (email)
 
-### **1. Instalar Dependencias**
+## Quick Start
 
+### Backend
 ```bash
-# Backend
+cd /path/to/Biajez
 pip install -r requirements.txt
-
-# Frontend
-cd frontend && npm install
-```
-
-### **2. Configurar Variables**
-
-Copia `.env.example` a `.env` y agrega tus keys:
-
-```bash
-# Duffel
-DUFFEL_ACCESS_TOKEN=duffel_test_xxx
-
-# Amadeus
-AMADEUS_CLIENT_ID=tu_client_id
-AMADEUS_CLIENT_SECRET=tu_client_secret
-AMADEUS_HOSTNAME=test
-
-# OpenAI
-OPENAI_API_KEY=sk-xxx
-```
-
-### **3. Iniciar Servidores**
-
-```bash
-# Backend (puerto 8000)
 python3 -m uvicorn app.main:app --port 8000
-
-# Frontend (puerto 5174)
-cd frontend && npm run dev
 ```
 
-### **4. Abrir App**
-
-```
-http://localhost:5174
-```
-
----
-
-## 📖 **Uso**
-
-### **Buscar Vuelos**
-
-**Chat:**
-```
-"Busca vuelos de Mexico a Cancun para el 20 de enero"
-```
-
-**API:**
+### Frontend
 ```bash
-curl "http://localhost:8000/v1/search?origin=MEX&destination=CUN&date=2026-01-20&cabin=ECONOMY"
+cd frontend
+npm install
+npm run dev
 ```
 
-### **Comprar Vuelo**
+## Environment Variables
 
-```bash
-curl -X POST "http://localhost:8000/v1/book?user_id=USER123&offer_id=DUFFEL::xxx&provider=DUFFEL&amount=98.40"
-```
+See `.env.example` for required variables.
 
----
+Key APIs needed:
+- `OPENAI_API_KEY`
+- `AMADEUS_API_KEY` + `AMADEUS_API_SECRET`
+- `DUFFEL_ACCESS_TOKEN`
+- `STRIPE_SECRET_KEY`
+- `WHATSAPP_ACCESS_TOKEN`
+- `LITEAPI_API_KEY`
 
-## 🏗️ **Arquitectura**
+## Production Deployment
 
-```
-├── app/
-│   ├── main.py              # FastAPI app
-│   ├── api/routes.py        # Endpoints
-│   ├── services/
-│   │   ├── flight_engine.py # Agregador de vuelos
-│   │   └── booking_execution.py
-│   ├── ai/agent.py          # AI agent
-│   └── models/models.py     # DB models
-│
-├── frontend/
-│   └── src/
-│       ├── components/
-│       │   ├── ChatInterface.tsx
-│       │   └── FlightCard.tsx
-│       └── App.tsx
-│
-└── tickets/                 # Tickets generados
-```
+Configured for Railway (backend) + Vercel (frontend).
 
----
+See `DEPLOYMENT_GUIDE.md` for full instructions.
 
-## 🧪 **Testing**
+## Documentation
 
-```bash
-# Test completo
-python3 test_final_system.py
+- `PRODUCTION_SETUP_GUIDE.md` - API configuration
+- `DEPLOYMENT_GUIDE.md` - Deploy instructions
+- `WHATSAPP_PRODUCTION_VERIFICATION.md` - WhatsApp setup
+- `ENHANCEMENTS_ROADMAP.md` - Future features
 
-# Test rápido
-python3 test_quick_booking.py
+## License
 
-# Test Amadeus
-python3 test_amadeus_direct.py
-```
+Proprietary - All rights reserved
 
----
+## Support
 
-## 📊 **Métricas**
-
-- **Vuelos:** 30+ por búsqueda
-- **Proveedores:** 2 activos (Duffel + Amadeus)
-- **Aerolíneas:** 600+
-- **Tiempo de búsqueda:** ~5-10s
-- **Tasa de éxito:** 100%
-
----
-
-## 🔧 **Scripts Útiles**
-
-```bash
-# Configurar Amadeus
-./setup_amadeus.sh
-
-# Reiniciar servidores
-./restart_servers.sh
-
-# Limpiar cache
-find . -type d -name __pycache__ -exec rm -rf {} +
-```
-
----
-
-## 🐛 **Troubleshooting**
-
-### **No encuentra vuelos**
-- Verifica que la fecha sea futura
-- Usa códigos IATA válidos (MEX, CUN, MAD)
-
-### **Error de API**
-- Revisa que las keys estén en `.env`
-- Verifica que no hayas excedido el límite
-
-### **Frontend no carga**
-- Verifica que backend esté en puerto 8000
-- Revisa CORS en `app/main.py`
-
----
-
-## 📝 **Documentación**
-
-- [Walkthrough Completo](./brain/.../walkthrough.md)
-- [Guía de Amadeus](./brain/.../implementation_plan.md)
-- [Sistema Completo](./SISTEMA_COMPLETO.md)
-
----
-
-## 🤝 **APIs Usadas**
-
-- [Duffel](https://duffel.com) - Vuelos NDC
-- [Amadeus](https://developers.amadeus.com) - GDS + Hoteles
-- [OpenAI](https://openai.com) - AI Agent
-
----
-
-## 📄 **License**
-
-MIT
-
----
-
-## 👨‍💻 **Autor**
-
-Biajez Travel Platform
+Contact: admin@biajez.com
