@@ -438,12 +438,14 @@ Tu asistente de viajes ejecutivos 🌍✈️
                 db.commit()
             
             # Get flight details - convert to dict if it's an object
-            if hasattr(selected_flight, 'dict'):
-                flight_dict = selected_flight.dict()
-            elif isinstance(selected_flight, dict):
-                flight_dict = selected_flight
+            # Use 'flight' variable that was defined from session["selected_flight"] above
+            if hasattr(flight, 'dict'):
+                flight_dict = flight.dict()
+            elif isinstance(flight, dict):
+                flight_dict = flight
             else:
-                flight_dict = selected_flight.__dict__ if hasattr(selected_flight, '__dict__') else {}
+                flight_dict = flight.__dict__ if hasattr(flight, '__dict__') else {}
+
             
             offer_id = flight_dict.get("id")
             provider = flight_dict.get("provider", "duffel")
@@ -792,40 +794,117 @@ Tu asistente de viajes ejecutivos 🌍✈️
             
             send_whatsapp_message(from_number, response_text)
             return {"status": "ok"}
-        
         # Regular AI processing
         session["messages"].append({"role": "user", "content": incoming_msg})
         session_manager.save_session(from_number, session)  # Save after adding message
         
-        # Clean up incomplete tool_calls from previous sessions
-        # This prevents OpenAI errors when tool_calls weren't completed
-        # cleaned_messages = []
-        # for i, msg in enumerate(session["messages"]):
-            # if msg.get("role") == "assistant" and msg.get("tool_calls"):
-                # Check if all tool_calls have responses in following messages
-                # tool_call_ids = [tc["id"] for tc in msg.get("tool_calls", [])]
-                # has_responses = all(
-                    # any(m.get("role") == "tool" and m.get("tool_call_id") == tcid 
-                        # for m in session["messages"][i+1:])
-                    # for tcid in tool_call_ids
-                # )
-                # if has_responses:
-                    # cleaned_messages.append(msg)
-                # else:
-                    # Skip this incomplete assistant message with tool_calls
-                    # print(f"⚠️  Skipping incomplete tool_calls: {tool_call_ids}")
-            # elif msg.get("role") == "tool":
-                # Only keep tool messages if their tool_call_id is in cleaned_messages
-                # tool_call_id = msg.get("tool_call_id")
-                # if any(tc["id"] == tool_call_id 
-                       # for m in cleaned_messages 
-                       # if m.get("role") == "assistant" and m.get("tool_calls")
-                       # for tc in m.get("tool_calls", [])):
-                    # cleaned_messages.append(msg)
-            # else:
-                # cleaned_messages.append(msg)
-         #         # session["messages"] = cleaned_messages
-        session_manager.save_session(from_number, session)
+        # --- ROBUST MESSAGE SANITIZATION ---
+        # Fix for OpenAI 400 Error: "An assistant message with 'tool_calls' must be followed by tool messages"
+        # We iterate through messages and ensure every tool_call has a matching tool response.
+        # If not, we remove the tool_calls field from the assistant message.
+        
+        sanitized_messages = []
+        skip_indices = set()
+        
+        # First pass: Identify valid tool responses
+        tool_outputs = {} # Map tool_call_id -> message
+        for msg in session["messages"]:
+            if msg.get("role") == "tool" and msg.get("tool_call_id"):
+                tool_outputs[msg.get("tool_call_id")] = msg
+        
+        # Second pass: Build sanitized list
+        for i, msg in enumerate(session["messages"]):
+            if i in skip_indices:
+                continue
+                
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                # Check if all tool calls have responses
+                valid_tool_calls = []
+                for tc in msg["tool_calls"]:
+                    if tc["id"] in tool_outputs:
+                        valid_tool_calls.append(tc)
+                
+                # If we have valid tool calls, keep them and ensure tool outputs follow
+                if valid_tool_calls:
+                    msg_copy = msg.copy()
+                    msg_copy["tool_calls"] = valid_tool_calls
+                    sanitized_messages.append(msg_copy)
+                    # We don't need to manually add tool outputs here, the loop will handle them
+                    # as they appear later in the list (since we only kept valid ones)
+                else:
+                    # No valid tool calls - strip the tool_calls field
+                    # If content is empty, maybe skip? But let's keep content if exists
+                    msg_copy = msg.copy()
+                    del msg_copy["tool_calls"]
+                    if msg_copy.get("content"):
+                        sanitized_messages.append(msg_copy)
+                    # If no content and no tool calls, it's useless, so skip
+            
+            elif msg.get("role") == "tool":
+                # Only keep tool messages if we kept the parent tool call
+                # Implicitly handled because we only checked existence in tool_outputs
+                # But better to just keep all tool messages that were found in map? 
+                # Actually, simpler: just keep them. If parent removed tool_call, OpenAI might ignore extra tool msg?
+                # No, OpenAI is strict. Tool msg MUST follow assistant msg.
+                # So we need to ensure flow.
+                
+                # LET'S SIMPLIFY:
+                # Just keeping logic simpler: 
+                sanitized_messages.append(msg)
+        
+        # FINAL STRICT PASS: Ensure sequence Assistant(tool) -> Tool(result)
+        # If we find Assistant(tool) without Tool(result) immediately after (ignoring other roles?), fix it.
+        # Actually simplest way:
+        # If assistant has tool_calls, subsequent messages MUST include the tool results.
+        
+        final_messages = []
+        for i, msg in enumerate(session["messages"]):
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                # verify next messages match
+                tool_ids = [tc["id"] for tc in msg["tool_calls"]]
+                found_ids = set()
+                
+                # Look ahead for tool responses
+                for j in range(i + 1, len(session["messages"])):
+                    next_msg = session["messages"][j]
+                    if next_msg.get("role") == "tool" and next_msg.get("tool_call_id") in tool_ids:
+                        found_ids.add(next_msg["tool_call_id"])
+                
+                if len(found_ids) == len(tool_ids):
+                    final_messages.append(msg) # All honest
+                else:
+                    # Missing responses! Strip tool_calls
+                    print(f"⚠️ Stripping broken tool_calls from msg {i}")
+                    msg_copy = msg.copy()
+                    del msg_copy["tool_calls"]
+                    if msg_copy.get("content"):
+                        final_messages.append(msg_copy)
+            
+            elif msg.get("role") == "tool":
+                # Only include tool message if the PREVIOUS message was assistant requesting it?
+                # Or just checking if it corresponds to a known assistant tool call in final_messages?
+                # This is tricky. Let's rely on the stripping above. 
+                # If we stripped the parent, the tool message becomes an orphan.
+                # OpenAI *might* accept orphan tool messages? No, usually errors.
+                
+                is_orphan = True
+                if final_messages:
+                    last_msg = final_messages[-1]
+                    if last_msg.get("role") == "assistant" and last_msg.get("tool_calls"):
+                        parent_ids = [tc["id"] for tc in last_msg["tool_calls"]]
+                        if msg.get("tool_call_id") in parent_ids:
+                            is_orphan = False
+                
+                if not is_orphan:
+                    final_messages.append(msg)
+                else:
+                   print(f"⚠️ Dropping orphan tool output {msg.get('tool_call_id')}")
+            
+            else:
+                final_messages.append(msg)
+        
+        session["messages"] = final_messages
+        # -----------------------------------
         
         response_message = await agent.chat(session["messages"], "")
         
@@ -889,22 +968,21 @@ Tu asistente de viajes ejecutivos 🌍✈️
                 elif function_name == "search_multicity_flights":
                     # Multi-city flight search
                     segments = arguments.get("segments", [])
-                    cabin = arguments.get("cabin", "ECONOMY")
-                    
                     print(f"DEBUG: Multi-city search with {len(segments)} segments")
                     
-                    # Use flight aggregator
-                    flights = await flight_aggregator.search_multicity(
-                        segments=segments,
-                        cabin_class=cabin
+                    tool_result = await flight_aggregator.search_multicity_flights(
+                        segments,
+                        arguments.get("cabin", "ECONOMY"),
+                        arguments.get("passengers", 1)
                     )
                     
-                    # Save to session and serialize for OpenAI
-                    if flights:
-                        session["pending_flights"] = flights[:5]
+                    # CRITICAL FIX: Convert AntigravityFlight objects to dicts
+                    # This prevents "AttributeError: 'AntigravityFlight' object has no attribute 'get'"
+                    tool_result = [f.dict() for f in tool_result]
+                    
+                    if tool_result:
+                        session["pending_flights"] = tool_result[:5]
                         session_manager.save_session(from_number, session)
-                        # Serialize flight objects properly
-                        tool_result = [f.dict() for f in flights[:5]]
                     else:
                         tool_result = []
                 
@@ -921,6 +999,14 @@ Tu asistente de viajes ejecutivos 🌍✈️
             session_manager.save_session(from_number, session)  # Save final AI response
             response_text = final_response.content
         else:
+            # When OpenAI responds with just text (no tool calls), it means either:
+            # 1. It's asking for more info from user (e.g., multidestino details)
+            # 2. It's a general response
+            # In both cases, clear old pending state to prevent stale results mixing
+            session.pop("pending_flights", None)
+            session.pop("pending_hotels", None)
+            session_manager.save_session(from_number, session)
+            
             session["messages"].append({"role": "assistant", "content": response_message.content})
             session_manager.save_session(from_number, session)  # Save AI response
             response_text = response_message.content
