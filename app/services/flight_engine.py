@@ -177,12 +177,12 @@ class FlightAggregator:
         return all_flights[:30]  # Return top 30 (was 15)
 
 
-    async def search_multicity(self, segments: List[Dict[str, str]], cabin_class="ECONOMY") -> List[AntigravityFlight]:
+    async def search_multicity(self, segments: List[Dict[str, str]], cabin_class="ECONOMY", num_passengers=1) -> List[AntigravityFlight]:
         """
         Search for multi-city flights using Duffel.
         segments: [{"origin": "MEX", "destination": "MAD", "date": "2025-12-15"}, ...]
         """
-        print(f"DEBUG: Searching Multi-City: {segments}")
+        print(f"DEBUG: Searching Multi-City: {segments} (Pax: {num_passengers})")
         
         # Map to Duffel slices
         duffel_slices = [{
@@ -193,7 +193,7 @@ class FlightAggregator:
         
         # Call Duffel with custom slices
         # We pass None for standard args as they are ignored when custom_slices is present
-        return await self._search_duffel(None, None, None, cabin_class, custom_slices=duffel_slices)
+        return await self._search_duffel(None, None, None, cabin_class, custom_slices=duffel_slices, num_passengers=num_passengers)
 
     async def _search_amadeus(self, origin, dest, date, cabin, airline_filter=None, return_date=None):
         try:

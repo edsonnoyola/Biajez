@@ -979,7 +979,11 @@ Tu asistente de viajes ejecutivos 🌍✈️
                     segments = arguments.get("segments", [])
                     print(f"DEBUG: Multi-city search with {len(segments)} segments")
                     
-                    tool_result = await flight_aggregator.search_multicity_flights(
+                    # Fix: Correct method name and pass arguments properly
+                    # Also added debug print to confirmed fixed code usage
+                    print(f"DEBUG: Calling flight_aggregator.search_multicity with pax={arguments.get('passengers', 1)}")
+
+                    tool_result = await flight_aggregator.search_multicity(
                         segments,
                         arguments.get("cabin", "ECONOMY"),
                         arguments.get("passengers", 1)
