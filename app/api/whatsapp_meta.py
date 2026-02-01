@@ -290,7 +290,7 @@ Tu asistente de viajes ejecutivos 🌍✈️
                 session_manager.save_session(from_number, session)
                 return {"status": "ok"}
         
-        # Check if selecting hotel by number
+        # Check if selecting hotel by number (MUST be before AI processing)
         if incoming_msg.strip().isdigit() and session.get("pending_hotels") and not session.get("pending_flights"):
             hotel_num = int(incoming_msg.strip()) - 1
             if 0 <= hotel_num < len(session["pending_hotels"]):
@@ -320,8 +320,8 @@ Tu asistente de viajes ejecutivos 🌍✈️
                 session_manager.save_session(from_number, session)
                 return {"status": "ok"}
         
-        # Check if confirming hotel booking
-        if incoming_msg.lower() in ['si', 'sí', 'yes'] and session.get("selected_hotel"):
+        # Check if confirming hotel booking (MUST be before AI processing)
+        if incoming_msg.lower() in ['si', 'sí', 'yes', 'confirmar'] and session.get("selected_hotel"):
             # Check if user is authorized
             if not is_authorized(from_number):
                 response_text = "❌ *No autorizado*\n\n"
@@ -332,7 +332,35 @@ Tu asistente de viajes ejecutivos 🌍✈️
             
             hotel = session["selected_hotel"]
             rate_id = hotel.get("offerId")
+            hotel_id = hotel.get("hotelId", "")
+            hotel_name = hotel.get("name", "Hotel")
             
+            # Check if this is a MOCK hotel (test data)
+            if hotel_id and hotel_id.startswith("MOCK_"):
+                # Mock booking for test hotels
+                import random
+                confirmation_number = f"HTL-{random.randint(100000, 999999)}"
+                hotel_dates = session.get("hotel_dates", {})
+                price = hotel.get("price", {})
+                total = price.get("total", "0") if isinstance(price, dict) else "0"
+                currency = price.get("currency", "USD") if isinstance(price, dict) else "USD"
+                
+                response_text = f"✅ *¡Reserva de hotel confirmada!*\n\n"
+                response_text += f"📝 Confirmación: {confirmation_number}\n"
+                response_text += f"🏨 {hotel_name}\n"
+                response_text += f"📅 {hotel_dates.get('checkin', 'N/A')} - {hotel_dates.get('checkout', 'N/A')}\n"
+                response_text += f"💰 Total: ${total} {currency}\n\n"
+                response_text += "_✨ Reserva de prueba exitosa_\n"
+                response_text += "_En producción se usaría API real de DuffelStays_"
+                
+                session["selected_hotel"] = None
+                session["hotel_dates"] = None
+                session_manager.save_session(from_number, session)
+                
+                send_whatsapp_message(from_number, response_text)
+                return {"status": "ok"}
+            
+            # Real booking with DuffelStays for production hotels
             # Get profile for guest info
             from app.models.models import Profile
             profile = db.query(Profile).filter(Profile.user_id == session["user_id"]).first()
@@ -372,6 +400,8 @@ Tu asistente de viajes ejecutivos 🌍✈️
             
             send_whatsapp_message(from_number, response_text)
             return {"status": "ok"}
+        
+        # Hotel selection moved above to prevent AI interception
         
         # Check if confirming booking
         if incoming_msg.lower() in ['si', 'sí', 'yes'] and session.get("selected_flight"):
@@ -724,6 +754,37 @@ Tu asistente de viajes ejecutivos 🌍✈️
         session["messages"].append({"role": "user", "content": incoming_msg})
         session_manager.save_session(from_number, session)  # Save after adding message
         
+        # Clean up incomplete tool_calls from previous sessions
+        # This prevents OpenAI errors when tool_calls weren't completed
+        cleaned_messages = []
+        for i, msg in enumerate(session["messages"]):
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                # Check if all tool_calls have responses in following messages
+                tool_call_ids = [tc["id"] for tc in msg.get("tool_calls", [])]
+                has_responses = all(
+                    any(m.get("role") == "tool" and m.get("tool_call_id") == tcid 
+                        for m in session["messages"][i+1:])
+                    for tcid in tool_call_ids
+                )
+                if has_responses:
+                    cleaned_messages.append(msg)
+                else:
+                    # Skip this incomplete assistant message with tool_calls
+                    print(f"⚠️  Skipping incomplete tool_calls: {tool_call_ids}")
+            elif msg.get("role") == "tool":
+                # Only keep tool messages if their tool_call_id is in cleaned_messages
+                tool_call_id = msg.get("tool_call_id")
+                if any(tc["id"] == tool_call_id 
+                       for m in cleaned_messages 
+                       if m.get("role") == "assistant" and m.get("tool_calls")
+                       for tc in m.get("tool_calls", [])):
+                    cleaned_messages.append(msg)
+            else:
+                cleaned_messages.append(msg)
+        
+        session["messages"] = cleaned_messages
+        session_manager.save_session(from_number, session)
+        
         response_message = await agent.chat(session["messages"], "")
         
         if response_message.tool_calls:
@@ -750,6 +811,39 @@ Tu asistente de viajes ejecutivos 🌍✈️
                     if tool_result:
                         session["pending_flights"] = tool_result[:5]
                         session_manager.save_session(from_number, session)
+                
+                elif function_name == "google_hotels":
+                    # Handle hotel search via AI agent
+                    from app.services.hotel_engine import HotelEngine
+                    from app.utils.date_parser import SmartDateParser
+                    
+                    hotel_engine = HotelEngine()
+                    city = arguments.get("city")
+                    checkin = arguments.get("checkin")
+                    checkout = arguments.get("checkout")
+                    
+                    # Use SmartDateParser if dates are missing
+                    if not checkin or not checkout:
+                        parsed_checkin, parsed_checkout = SmartDateParser.parse_date_range(incoming_msg)
+                        if parsed_checkin and parsed_checkout:
+                            checkin = parsed_checkin
+                            checkout = parsed_checkout
+                    
+                    tool_result = hotel_engine.search_hotels(
+                        city=city,
+                        checkin=checkin,
+                        checkout=checkout,
+                        amenities=arguments.get("amenities"),
+                        room_type=arguments.get("room_type"),
+                        landmark=arguments.get("landmark")
+                    )
+                    
+                    # Store hotels in session for booking
+                    if tool_result:
+                        session["pending_hotels"] = tool_result[:5]
+                        session["hotel_dates"] = {"checkin": checkin, "checkout": checkout}
+                        session_manager.save_session(from_number, session)
+                
                 
                 session["messages"].append({
                     "role": "tool",
@@ -957,6 +1051,41 @@ def format_for_whatsapp(text: str, session: dict) -> str:
                 flight_list += "\n"
         
         text += flight_list
+        text += "_Responde con el número para reservar_"
+    
+    # Format hotels if available
+    if session.get("pending_hotels"):
+        hotels = session["pending_hotels"]
+        hotel_dates = session.get("hotel_dates", {})
+        checkin = hotel_dates.get("checkin", "N/A")
+        checkout = hotel_dates.get("checkout", "N/A")
+        
+        hotel_list = f"\n\n🏨 *Hoteles encontrados:*\n📅 {checkin} - {checkout}\n\n"
+        
+        for i, hotel in enumerate(hotels, 1):
+            name = hotel.get("name", "N/A")
+            rating = hotel.get("rating", "N/A")
+            price = hotel.get("price", {})
+            total = price.get("total", "N/A") if isinstance(price, dict) else "N/A"
+            currency = price.get("currency", "USD") if isinstance(price, dict) else "USD"
+            
+            # Get amenities
+            amenities = hotel.get("amenities", [])
+            amenities_str = ", ".join(amenities[:3]) if amenities else "WiFi"
+            
+            # Get location
+            address = hotel.get("address", {})
+            city_name = address.get("cityName", "") if isinstance(address, dict) else ""
+            location = hotel.get("location_description", city_name)
+            
+            # Format hotel info
+            hotel_list += f"{i}. *{name}*\n"
+            hotel_list += f"   ⭐ {rating} estrellas\n"
+            hotel_list += f"   💰 ${total} {currency}/noche\n"
+            hotel_list += f"   📍 {location}\n"
+            hotel_list += f"   ✨ {amenities_str}\n\n"
+        
+        text += hotel_list
         text += "_Responde con el número para reservar_"
     
     return text
