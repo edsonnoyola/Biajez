@@ -11,8 +11,37 @@ import os
 import json
 from datetime import datetime, timedelta
 from app.services import profile_manager
+import re
 
 router = APIRouter()
+
+def parse_iso_duration(duration_str: str) -> str:
+    """Convert ISO 8601 duration (PT15H39M) to readable format (15h 39m)"""
+    if not duration_str:
+        return ""
+
+    # Already readable format
+    if 'h' in duration_str.lower() and 'PT' not in duration_str:
+        return duration_str
+
+    # Parse ISO 8601 duration: PT1D2H30M or PT15H39M
+    match = re.match(r'P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?', duration_str)
+    if match:
+        days = int(match.group(1) or 0)
+        hours = int(match.group(2) or 0)
+        minutes = int(match.group(3) or 0)
+
+        parts = []
+        if days:
+            parts.append(f"{days}d")
+        if hours:
+            parts.append(f"{hours}h")
+        if minutes:
+            parts.append(f"{minutes}m")
+
+        return " ".join(parts) if parts else duration_str
+
+    return duration_str
 agent = AntigravityAgent()
 flight_aggregator = FlightAggregator()
 
@@ -256,8 +285,6 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 response_text += f"✈️ Aerolínea: {airline}\n"
                 response_text += f"💰 Precio: ${price} USD\n"
                 response_text += f"📊 Tipo: {flight_type}\n"
-                if duration:
-                    response_text += f"⏱️ Duración total: {duration}\n"
                 response_text += "\n"
 
                 # Show all segments with proper labels
@@ -270,23 +297,28 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     seg_airline = seg.get("carrier_code", "N/A")
                     seg_flight_num = seg.get("flight_number", "")
 
-                    # Format departure
+                    # Format departure time
                     dep_str = "N/A"
                     if dep_time:
                         dep_str_raw = str(dep_time)
-                        if len(dep_str_raw) >= 16 and "T" in dep_str_raw:
+                        if "T" in dep_str_raw and len(dep_str_raw) >= 16:
+                            # ISO format: 2026-02-10T06:58:00
                             dep_str = f"{dep_str_raw[8:10]}/{dep_str_raw[5:7]} {dep_str_raw[11:16]}"
                         elif hasattr(dep_time, 'strftime'):
                             dep_str = dep_time.strftime("%d/%m %H:%M")
+                        elif len(dep_str_raw) >= 10:
+                            dep_str = dep_str_raw[:16] if len(dep_str_raw) >= 16 else dep_str_raw
 
-                    # Format arrival
+                    # Format arrival time
                     arr_str = "N/A"
                     if arr_time:
                         arr_str_raw = str(arr_time)
-                        if len(arr_str_raw) >= 16 and "T" in arr_str_raw:
+                        if "T" in arr_str_raw and len(arr_str_raw) >= 16:
                             arr_str = f"{arr_str_raw[8:10]}/{arr_str_raw[5:7]} {arr_str_raw[11:16]}"
                         elif hasattr(arr_time, 'strftime'):
                             arr_str = arr_time.strftime("%d/%m %H:%M")
+                        elif len(arr_str_raw) >= 10:
+                            arr_str = arr_str_raw[:16] if len(arr_str_raw) >= 16 else arr_str_raw
 
                     # Label based on flight type
                     if is_direct:
@@ -301,12 +333,20 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     if seg_flight_num:
                         flight_info += f" {seg_flight_num}"
 
+                    # Parse duration to readable format
+                    readable_duration = parse_iso_duration(seg_duration)
+
                     response_text += f"*{label}:* {seg_origin} → {seg_dest}\n"
-                    response_text += f"   ✈️ {flight_info} (Directo)\n"
+                    response_text += f"   ✈️ {flight_info}\n"
                     response_text += f"   🛫 {dep_str} → 🛬 {arr_str}\n"
-                    if seg_duration:
-                        response_text += f"   ⏱️ Duración: {seg_duration}\n"
+                    if readable_duration:
+                        response_text += f"   ⏱️ Duración: {readable_duration}\n"
                     response_text += "\n"
+
+                # Total duration at the end
+                if duration:
+                    readable_total = parse_iso_duration(duration)
+                    response_text += f"📊 *Duración total:* {readable_total}\n"
 
                 # Send with interactive buttons
                 send_interactive_message(
@@ -1319,11 +1359,13 @@ def format_for_whatsapp(text: str, session: dict) -> str:
                     flight_list += f"\n   {seg_label}: {seg_origin}→{seg_dest}\n"
                     flight_list += f"   ✈️ {flight_id} | {dep_str}→{arr_str}\n"
                     if seg_duration:
-                        flight_list += f"   ⏱️ {seg_duration}\n"
+                        readable_seg_duration = parse_iso_duration(seg_duration)
+                        flight_list += f"   ⏱️ {readable_seg_duration}\n"
 
                 # Total duration if available
                 if duration:
-                    flight_list += f"\n   📊 Duración total: {duration}\n"
+                    readable_total_duration = parse_iso_duration(duration)
+                    flight_list += f"\n   📊 Duración total: {readable_total_duration}\n"
 
                 flight_list += "\n"
 
