@@ -12,6 +12,7 @@ import json
 class PriceAlert(Base):
     """Price alert model"""
     __tablename__ = "price_alerts"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(String, index=True)
