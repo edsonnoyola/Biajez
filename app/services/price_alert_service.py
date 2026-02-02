@@ -119,12 +119,13 @@ class PriceAlertService:
             for a in alerts
         ]
 
-    def deactivate_alert(self, alert_id: int, user_id: str) -> Dict:
+    def deactivate_alert(self, alert_id: int, user_id: str = None) -> Dict:
         """Deactivate an alert"""
-        alert = self.db.query(PriceAlert).filter(
-            PriceAlert.id == alert_id,
-            PriceAlert.user_id == user_id
-        ).first()
+        query = self.db.query(PriceAlert).filter(PriceAlert.id == alert_id)
+        if user_id:
+            query = query.filter(PriceAlert.user_id == user_id)
+
+        alert = query.first()
 
         if not alert:
             return {"success": False, "error": "Alerta no encontrada"}
