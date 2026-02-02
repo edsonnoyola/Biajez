@@ -951,16 +951,17 @@ Tu asistente de viajes ejecutivos 🌍✈️
                 
                 if function_name == "search_hybrid_flights":
                     tool_result = await flight_aggregator.search_hybrid_flights(
-                        arguments["origin"], 
-                        arguments["destination"], 
+                        arguments["origin"],
+                        arguments["destination"],
                         arguments["date"],
                         arguments.get("return_date"),
                         arguments.get("cabin", "ECONOMY"),
                         arguments.get("airline"),
-                        arguments.get("time_of_day", "ANY")
+                        arguments.get("time_of_day", "ANY"),
+                        arguments.get("passengers", 1)  # num_passengers
                     )
                     tool_result = [f.dict() for f in tool_result]
-                    
+
                     if tool_result:
                         session["pending_flights"] = tool_result[:5]
                         session_manager.save_session(from_number, session)
@@ -1001,7 +1002,7 @@ Tu asistente de viajes ejecutivos 🌍✈️
                     # Multi-city flight search
                     segments = arguments.get("segments", [])
                     print(f"DEBUG: Multi-city search with {len(segments)} segments")
-                    
+
                     # Fix: Correct method name and pass arguments properly
                     # Also added debug print to confirmed fixed code usage
                     print(f"DEBUG: Calling flight_aggregator.search_multicity with pax={arguments.get('passengers', 1)}")
@@ -1011,18 +1012,38 @@ Tu asistente de viajes ejecutivos 🌍✈️
                         arguments.get("cabin", "ECONOMY"),
                         arguments.get("passengers", 1)
                     )
-                    
+
                     # CRITICAL FIX: Convert AntigravityFlight objects to dicts
                     # This prevents "AttributeError: 'AntigravityFlight' object has no attribute 'get'"
                     tool_result = [f.dict() for f in tool_result]
-                    
+
                     if tool_result:
                         session["pending_flights"] = tool_result[:5]
                         session_manager.save_session(from_number, session)
                     else:
                         tool_result = []
-                
-                
+
+                elif function_name == "book_flight_final":
+                    # Booking is handled by the confirmation flow, not by AI tool
+                    tool_result = {"status": "error", "message": "Use the confirmation buttons to book. Select a flight number first."}
+
+                elif function_name == "add_loyalty_data":
+                    # TODO: Implement loyalty program storage
+                    tool_result = {"status": "success", "message": f"Loyalty data noted: {arguments}"}
+
+                elif function_name == "update_preferences":
+                    # TODO: Implement preferences storage
+                    tool_result = {"status": "success", "message": f"Preferences noted: {arguments}"}
+
+                else:
+                    # Unknown tool - return error to AI
+                    print(f"⚠️ Unknown tool called: {function_name}")
+                    tool_result = {"status": "error", "message": f"Unknown tool: {function_name}"}
+
+                # Ensure tool_result is never None
+                if tool_result is None:
+                    tool_result = []
+
                 session["messages"].append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,

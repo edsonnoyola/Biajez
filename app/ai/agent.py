@@ -83,7 +83,8 @@ RULES:
                             "return_date": {"type": "string", "description": "Return date in YYYY-MM-DD format (for round trips). Optional."},
                             "cabin": {"type": "string", "enum": ["ECONOMY", "PREMIUM_ECONOMY", "BUSINESS", "FIRST"], "default": "ECONOMY"},
                             "airline": {"type": "string", "description": "Preferred airline IATA code (e.g., IB, BA, AM). Optional."},
-                            "time_of_day": {"type": "string", "enum": ["EARLY_MORNING", "MORNING", "AFTERNOON", "EVENING", "NIGHT", "ANY"], "description": "Preferred time of day. EARLY_MORNING=0-6, MORNING=6-12, AFTERNOON=12-18, EVENING=18-22, NIGHT=22-24"}
+                            "time_of_day": {"type": "string", "enum": ["EARLY_MORNING", "MORNING", "AFTERNOON", "EVENING", "NIGHT", "ANY"], "description": "Preferred time of day. EARLY_MORNING=0-6, MORNING=6-12, AFTERNOON=12-18, EVENING=18-22, NIGHT=22-24"},
+                            "passengers": {"type": "integer", "description": "Number of passengers (default 1)"}
                         },
                         "required": ["origin", "destination", "date"]
                     }
