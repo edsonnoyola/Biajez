@@ -70,6 +70,17 @@ def run_migrations():
             extra_data TEXT
         );""",
         "CREATE INDEX IF NOT EXISTS idx_price_alerts_user ON price_alerts(user_id);",
+        # Loyalty programs table
+        """CREATE TABLE IF NOT EXISTS loyalty_programs (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR,
+            airline_code VARCHAR,
+            program_name VARCHAR,
+            member_number VARCHAR,
+            tier_status VARCHAR,
+            extra_data TEXT
+        );""",
+        "CREATE INDEX IF NOT EXISTS idx_loyalty_user ON loyalty_programs(user_id);",
     ]
     try:
         with engine.connect() as conn:

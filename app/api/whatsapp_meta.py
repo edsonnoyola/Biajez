@@ -219,27 +219,34 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         if incoming_msg.lower() in ["ayuda", "help", "que puedes hacer", "qué puedes hacer", "comandos", "menu", "menú"]:
             help_text = """*Biatriz - Tu Asistente de Viajes*
 
-*VUELOS Y HOTELES*
-- "vuelo de MEX a MAD el 15 marzo"
+*RESERVAR*
+- "vuelo de MEX a MAD 15 marzo"
 - "hotel en Madrid del 15 al 18"
+- "reservar sin pagar" - Apartar 24h
 
 *MIS VIAJES*
-- "itinerario" - Tu proximo viaje
+- "itinerario" - Proximo viaje
 - "historial" - Viajes pasados
+- "cambiar vuelo" - Modificar fecha
+- "cancelar [PNR]" - Cancelar
+- "reembolso" - Cotizar cancelacion
+
+*EXTRAS*
 - "equipaje" - Agregar maletas
-- "checkin" - Check-in
 - "asientos" - Elegir asiento
+- "servicios" - Comidas, WiFi
+- "checkin" - Check-in
+
+*PROGRAMAS*
+- "millas" - Viajero frecuente
+- "creditos" - Vouchers aerolínea
+- "alertas" - Alertas de precio
 
 *UTILIDADES*
 - "clima cancun" - Pronostico
-- "cambio miami" - Tipo de cambio
-- "estado vuelo AM123" - Rastrear vuelo
-- "alertas" - Alertas de precio
-- "visa US" - Requisitos visa
-
-*OTROS*
-- "mi perfil" - Tus preferencias
-- "reset" - Reiniciar
+- "cambio USD" - Tipo de cambio
+- "estado vuelo AM123" - Rastrear
+- "visa US" - Requisitos
 
 Que necesitas?"""
             send_whatsapp_message(from_number, help_text)
@@ -1342,6 +1349,178 @@ Que necesitas?"""
                     response = "No pude obtener el mapa de asientos para este vuelo."
             else:
                 response = "*Selección de asiento*\n\nPrimero selecciona un vuelo para ver los asientos disponibles."
+
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # MILLAS / VIAJERO FRECUENTE / LOYALTY
+        if any(kw in msg_lower for kw in ['millas', 'viajero frecuente', 'loyalty', 'mis millas', 'puntos']):
+            from app.services.loyalty_service import LoyaltyService
+
+            loyalty_service = LoyaltyService(db)
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+
+            programs = loyalty_service.get_user_programs(user_id)
+            response = loyalty_service.format_for_whatsapp(programs)
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # AGREGAR MILLAS
+        if 'agregar millas' in msg_lower or 'agregar viajero' in msg_lower:
+            from app.services.loyalty_service import LoyaltyService
+
+            loyalty_service = LoyaltyService(db)
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+
+            # Parse: "agregar millas AM 123456789"
+            parts = incoming_msg.split()
+            if len(parts) >= 4:
+                airline_code = parts[2].upper()
+                member_number = parts[3]
+
+                result = loyalty_service.add_loyalty_number(user_id, airline_code, member_number)
+                if result.get("success"):
+                    response = f"✅ {result['message']}\n\nPrograma: {result['program']}\nNúmero: {result['number']}"
+                else:
+                    response = f"❌ Error: {result.get('error')}"
+            else:
+                response = "Para agregar millas escribe:\n'agregar millas [aerolínea] [número]'\n\nEjemplo: agregar millas AM 123456789"
+
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # SERVICIOS ADICIONALES / COMIDAS / ANCILLARIES
+        if any(kw in msg_lower for kw in ['servicios', 'comidas', 'wifi', 'meals', 'extras', 'agregar servicio']):
+            from app.services.ancillary_service import AncillaryService
+
+            ancillary_service = AncillaryService()
+
+            if session.get("selected_flight"):
+                offer_id = session["selected_flight"].get("offer_id")
+                if offer_id:
+                    services = await ancillary_service.get_available_services(offer_id)
+                    response = ancillary_service.format_services_for_whatsapp(services)
+                else:
+                    response = "No pude obtener servicios para este vuelo."
+            else:
+                response = "*Servicios adicionales*\n\nPrimero selecciona un vuelo para ver servicios disponibles (comidas, WiFi, equipaje extra, etc.)"
+
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # COTIZAR REEMBOLSO
+        if any(kw in msg_lower for kw in ['reembolso', 'refund', 'cuanto me devuelven', 'cotizar cancelacion']):
+            from app.services.order_management import OrderManager
+
+            order_manager = OrderManager(db)
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+
+            # Try to get user's recent trip
+            from app.services.itinerary_service import ItineraryService
+            itinerary_service = ItineraryService(db)
+            upcoming = itinerary_service.get_upcoming_trip(user_id)
+
+            if upcoming and upcoming.get("success"):
+                trip = db.query(Trip).filter(Trip.booking_reference == upcoming.get("booking_reference")).first()
+
+                if trip and trip.duffel_order_id:
+                    try:
+                        quote = order_manager.get_cancellation_quote(trip.duffel_order_id)
+                        response = f"*Cotización de reembolso*\n\n"
+                        response += f"PNR: {trip.booking_reference}\n"
+                        response += f"Reembolso: ${quote.get('refund_amount', '0')} {quote.get('refund_currency', 'USD')}\n\n"
+                        response += "Para cancelar escribe: 'cancelar " + trip.booking_reference + "'"
+                    except Exception as e:
+                        response = f"No pude cotizar el reembolso: {str(e)}"
+                else:
+                    response = "No encontré el ID de la orden para cotizar."
+            else:
+                response = "No tienes viajes próximos para cotizar reembolso."
+
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # CAMBIAR VUELO
+        if any(kw in msg_lower for kw in ['cambiar vuelo', 'cambiar fecha', 'modificar vuelo', 'change flight']):
+            from app.services.order_change_service import OrderChangeService
+
+            change_service = OrderChangeService(db)
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+
+            # Get user's trip
+            from app.services.itinerary_service import ItineraryService
+            itinerary_service = ItineraryService(db)
+            upcoming = itinerary_service.get_upcoming_trip(user_id)
+
+            if upcoming and upcoming.get("success"):
+                response = f"*Cambiar vuelo*\n\n"
+                response += f"PNR: {upcoming.get('booking_reference')}\n"
+                response += f"Vuelo actual: {upcoming.get('flight', {}).get('route', 'N/A')}\n\n"
+                response += "Para cambiar, escribe la nueva fecha:\n"
+                response += "'cambiar a [fecha]'\n\n"
+                response += "Ejemplo: cambiar a 25 marzo"
+
+                session["pending_change"] = {
+                    "pnr": upcoming.get("booking_reference"),
+                    "order_id": upcoming.get("duffel_order_id")
+                }
+                session_manager.save_session(from_number, session)
+            else:
+                response = "No tienes vuelos próximos para cambiar."
+
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # MIS CRÉDITOS DE AEROLÍNEA
+        if any(kw in msg_lower for kw in ['mis creditos', 'creditos', 'vouchers', 'mis vouchers', 'airline credits']):
+            from app.services.airline_credits_service import AirlineCreditsService
+
+            credits_service = AirlineCreditsService(db)
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+
+            credits = credits_service.get_user_credits(user_id)
+
+            if credits:
+                response = "*Mis créditos de aerolínea*\n\n"
+                for c in credits:
+                    status = "✅" if c.get('is_valid') else "❌"
+                    response += f"{status} *{c.get('airline_iata_code', 'N/A')}* - {c.get('credit_name', '')}\n"
+                    response += f"   Monto: ${c.get('credit_amount', 0)} {c.get('credit_currency', 'USD')}\n"
+                    if c.get('credit_code'):
+                        response += f"   Código: {c['credit_code']}\n"
+                    response += f"   Expira: {c.get('expires_at', 'N/A')}\n\n"
+            else:
+                response = "*Mis créditos de aerolínea*\n\nNo tienes créditos guardados.\n\nLos créditos se generan cuando cancelas un vuelo con reembolso en crédito."
+
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # RESERVAR SIN PAGAR / HOLD
+        if any(kw in msg_lower for kw in ['reservar sin pagar', 'hold', 'apartar vuelo', 'guardar vuelo', 'pagar despues']):
+            from app.services.hold_order_service import HoldOrderService
+
+            hold_service = HoldOrderService()
+
+            if session.get("selected_flight"):
+                offer_id = session["selected_flight"].get("offer_id")
+                if offer_id:
+                    # Check if hold is available
+                    hold_check = await hold_service.check_hold_availability(offer_id)
+
+                    if hold_check.get("available"):
+                        response = f"✅ *Este vuelo permite reservar sin pagar*\n\n"
+                        response += f"Tienes hasta {hold_check.get('hold_hours', 24)} horas para pagar.\n\n"
+                        response += "¿Quieres reservar ahora y pagar después?\n\n"
+                        response += "Responde 'confirmar hold' para continuar."
+
+                        session["pending_hold"] = True
+                        session_manager.save_session(from_number, session)
+                    else:
+                        response = f"❌ {hold_check.get('message', 'Este vuelo no permite reservar sin pagar.')}"
+                else:
+                    response = "No pude verificar el vuelo seleccionado."
+            else:
+                response = "*Reservar sin pagar*\n\nPrimero selecciona un vuelo para verificar si permite reservar sin pagar."
 
             send_whatsapp_message(from_number, response)
             return {"status": "ok"}
