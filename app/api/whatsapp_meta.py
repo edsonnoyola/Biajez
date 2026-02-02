@@ -405,8 +405,14 @@ Que necesitas?"""
                 
                 name = selected.get("name", "N/A")
                 rating = selected.get("rating", "N/A")
-                price = selected.get("price", {}).get("total", "N/A")
-                currency = selected.get("price", {}).get("currency", "USD")
+                # Handle both price structures: {price: {total, currency}} or {price_total, currency}
+                price_obj = selected.get("price", {})
+                if isinstance(price_obj, dict):
+                    price = price_obj.get("total", "N/A")
+                    currency = price_obj.get("currency", "USD")
+                else:
+                    price = selected.get("price_total", "N/A")
+                    currency = selected.get("currency", "USD")
                 amenities = selected.get("amenities", [])[:3]
                 amenities_str = ', '.join(amenities) if amenities else 'WiFi'
                 
@@ -1132,7 +1138,6 @@ Que necesitas?"""
             user_id = session.get("user_id", f"whatsapp_{from_number}")
 
             # Try to extract destination from message: "visa MAD" or "visa espana"
-            import re
             dest_match = re.search(r'visa\s+([A-Za-z]{2,3})', msg_lower)
 
             if dest_match:
