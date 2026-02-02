@@ -249,20 +249,29 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     # Handle datetime
                     dep_time = seg.get("departure_time", "")
                     arr_time = seg.get("arrival_time", "")
-                    
+                    dep_date = seg.get("departure_date", "")
+
+                    # Format date and time properly
                     if hasattr(dep_time, 'strftime'):
-                        dep_str = dep_time.strftime("%H:%M")
+                        dep_str = dep_time.strftime("%d/%m %H:%M")
+                    elif dep_time and len(str(dep_time)) >= 16:
+                        # Format: 2026-02-10T06:58:00 -> 10/02 06:58
+                        dep_str = str(dep_time)[8:10] + "/" + str(dep_time)[5:7] + " " + str(dep_time)[11:16]
+                    elif dep_date:
+                        dep_str = str(dep_date)[8:10] + "/" + str(dep_date)[5:7]
                     else:
-                        dep_str = str(dep_time)[:5] if dep_time else "N/A"
-                    
+                        dep_str = "N/A"
+
                     if hasattr(arr_time, 'strftime'):
-                        arr_str = arr_time.strftime("%H:%M")
+                        arr_str = arr_time.strftime("%d/%m %H:%M")
+                    elif arr_time and len(str(arr_time)) >= 16:
+                        arr_str = str(arr_time)[8:10] + "/" + str(arr_time)[5:7] + " " + str(arr_time)[11:16]
                     else:
-                        arr_str = str(arr_time)[:5] if arr_time else "N/A"
-                    
+                        arr_str = "N/A"
+
                     segment_type = "Ida" if idx == 1 else "Regreso"
                     response_text += f"{segment_type}: {origin} → {dest}\n"
-                    response_text += f"🕐 Salida: {dep_str} | Llegada: {arr_str}\n\n"
+                    response_text += f"📅 {dep_str} → {arr_str}\n\n"
                 
                 # Send with interactive buttons
                 send_interactive_message(
@@ -413,6 +422,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             
             # Create profile if needed
             from app.models.models import Profile
+            from datetime import datetime as dt  # Explicit import to avoid any shadowing
             profile = db.query(Profile).filter(Profile.user_id == session["user_id"]).first()
             if not profile:
                 profile = Profile(
@@ -422,9 +432,9 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     email=f"{session['user_id']}@whatsapp.temp",
                     phone_number=from_number,
                     gender="M",
-                    dob=datetime.strptime("1990-01-01", "%Y-%m-%d").date(),
+                    dob=dt.strptime("1990-01-01", "%Y-%m-%d").date(),
                     passport_number="000000000",
-                    passport_expiry=datetime.strptime("2030-01-01", "%Y-%m-%d").date(),
+                    passport_expiry=dt.strptime("2030-01-01", "%Y-%m-%d").date(),
                     passport_country="US"
                 )
                 db.add(profile)
