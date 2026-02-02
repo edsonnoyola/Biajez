@@ -1354,17 +1354,20 @@ def format_for_whatsapp(text: str, session: dict) -> str:
                     # Detect if round trip (origin == final destination) or multidestino
                     is_round_trip = (origin == final_dest) and num_segments >= 2
 
-                    # Segment label
+                    # Segment label with direct/stops indicator
+                    # Each segment is a direct flight leg
                     if num_segments == 1:
                         seg_label = "✈️ DIRECTO"
+                        flight_list += f"\n   {seg_label}: {seg_origin}→{seg_dest}\n"
                     elif is_round_trip and seg_idx == 0:
                         seg_label = "🛫 IDA"
+                        flight_list += f"\n   {seg_label}: {seg_origin}→{seg_dest} (Directo)\n"
                     elif is_round_trip and seg_idx == 1:
                         seg_label = "🛬 VUELTA"
+                        flight_list += f"\n   {seg_label}: {seg_origin}→{seg_dest} (Directo)\n"
                     else:
                         seg_label = f"✈️ Tramo {seg_idx + 1}"
-
-                    flight_list += f"\n   {seg_label}: {seg_origin}→{seg_dest}\n"
+                        flight_list += f"\n   {seg_label}: {seg_origin}→{seg_dest} (Directo)\n"
                     flight_list += f"   ✈️ {flight_id} | {dep_str}→{arr_str}\n"
                     if seg_duration:
                         readable_seg_duration = parse_iso_duration(seg_duration)
