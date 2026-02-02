@@ -915,11 +915,12 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             session["messages"] = final_messages
             session_manager.save_session(from_number, session)
 
-        # Also limit conversation history to prevent context overflow
-        if len(session["messages"]) > 20:
-            # Keep system context fresh, trim old messages
-            session["messages"] = session["messages"][-20:]
-            print(f"📝 Trimmed conversation history to last 20 messages")
+        # AGGRESSIVE: Limit conversation history to prevent "Request too large" error
+        if len(session["messages"]) > 10:
+            # Keep only last 10 messages to stay under token limit
+            session["messages"] = session["messages"][-10:]
+            session_manager.save_session(from_number, session)
+            print(f"📝 Trimmed conversation history to last 10 messages")
         # -----------------------------------
 
         response_message = await agent.chat(session["messages"], "")
@@ -1028,10 +1029,16 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 if tool_result is None:
                     tool_result = []
 
+                # COMPACT: Store only summary in messages to avoid "Request too large"
+                if isinstance(tool_result, list) and len(tool_result) > 0:
+                    compact_result = f"Found {len(tool_result)} results. Data stored in session."
+                else:
+                    compact_result = json.dumps(tool_result, default=str)[:500]  # Limit size
+
                 session["messages"].append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
-                    "content": json.dumps(tool_result, default=str)
+                    "content": compact_result
                 })
                 session_manager.save_session(from_number, session)  # Save after tool result
             
