@@ -174,7 +174,15 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         
         # Get or create session with Redis
         session = session_manager.get_session(from_number)
-        
+
+        # DEBUG: Log session state for confirmation debugging
+        print(f"🔍 DEBUG Session loaded for {from_number}:")
+        print(f"   - selected_hotel: {bool(session.get('selected_hotel'))}")
+        print(f"   - selected_flight: {bool(session.get('selected_flight'))}")
+        print(f"   - pending_hotels: {len(session.get('pending_hotels', []))}")
+        print(f"   - pending_flights: {len(session.get('pending_flights', []))}")
+        print(f"   - incoming_msg: {incoming_msg[:50] if incoming_msg else 'None'}...")
+
         # Initialize session if new user
         if not session.get("user_id"):
             from app.models.models import Profile
@@ -523,6 +531,15 @@ Que necesitas?"""
             print(f"   - selected_flight exists: {bool(session.get('selected_flight'))}")
             print(f"   - selected_hotel exists: {bool(session.get('selected_hotel'))}")
             print(f"   - session keys: {list(session.keys())}")
+
+            # Handle case where nothing is selected (session lost due to no Redis)
+            if not session.get("selected_flight") and not session.get("selected_hotel"):
+                response_text = "⚠️ *Sesión expirada*\n\n"
+                response_text += "No encontré tu selección.\n"
+                response_text += "Por favor busca de nuevo tu vuelo u hotel.\n\n"
+                response_text += "_Escribe 'ayuda' para ver los comandos_"
+                send_whatsapp_message(from_number, response_text)
+                return {"status": "ok"}
 
         if incoming_msg.lower() in ['si', 'sí', 'yes', 'confirmar'] and session.get("selected_flight"):
             # Check if user is authorized to make bookings
