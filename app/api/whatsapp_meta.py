@@ -156,25 +156,9 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             
             session["user_id"] = user_id
             session_manager.save_session(from_number, session)
-            
-            # Send welcome message to new users
-            if is_new_user and incoming_msg.lower() not in ["ayuda", "help"]:
-                welcome_msg = """👋 *¡Bienvenido a Antigravity!*
 
-Tu asistente de viajes ejecutivos 🌍✈️
-
-*Puedo ayudarte con:*
-✈️ Búsqueda y reserva de vuelos
-🏨 Reserva de hoteles premium
-⚙️ Gestión de preferencias
-
-*Ejemplos rápidos:*
-• "MEX a Madrid el 15 marzo"
-• "Busca hotel en Londres"
-• "Ayuda" para ver todos los comandos
-
-¿A dónde quieres viajar? 😊"""
-                send_whatsapp_message(from_number, welcome_msg)
+            # NOTE: Welcome message removed - was causing issues after Reset
+            # The AI will greet naturally when appropriate
 
         
         # ===== HELP COMMAND =====
