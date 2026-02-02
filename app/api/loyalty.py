@@ -27,6 +27,13 @@ class LoyaltyResponse(BaseModel):
     airline: str
 
 
+# Static routes MUST come before dynamic routes
+@router.get("/programs/list")
+def list_available_programs():
+    """List all known loyalty programs"""
+    return LoyaltyService.PROGRAMS
+
+
 @router.post("/", response_model=dict)
 def add_loyalty_program(data: LoyaltyCreate, db: Session = Depends(get_db)):
     """Add or update a loyalty program membership"""
@@ -67,9 +74,3 @@ def delete_loyalty_program(user_id: str, airline_code: str, db: Session = Depend
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error"))
     return result
-
-
-@router.get("/programs/list")
-def list_available_programs():
-    """List all known loyalty programs"""
-    return LoyaltyService.PROGRAMS
