@@ -1353,19 +1353,7 @@ Que necesitas?"""
             send_whatsapp_message(from_number, response)
             return {"status": "ok"}
 
-        # MILLAS / VIAJERO FRECUENTE / LOYALTY
-        if any(kw in msg_lower for kw in ['millas', 'viajero frecuente', 'loyalty', 'mis millas', 'puntos']):
-            from app.services.loyalty_service import LoyaltyService
-
-            loyalty_service = LoyaltyService(db)
-            user_id = session.get("user_id", f"whatsapp_{from_number}")
-
-            programs = loyalty_service.get_user_programs(user_id)
-            response = loyalty_service.format_for_whatsapp(programs)
-            send_whatsapp_message(from_number, response)
-            return {"status": "ok"}
-
-        # AGREGAR MILLAS
+        # AGREGAR MILLAS - Must come BEFORE generic "millas" handler
         if 'agregar millas' in msg_lower or 'agregar viajero' in msg_lower:
             from app.services.loyalty_service import LoyaltyService
 
@@ -1386,6 +1374,18 @@ Que necesitas?"""
             else:
                 response = "Para agregar millas escribe:\n'agregar millas [aerolínea] [número]'\n\nEjemplo: agregar millas AM 123456789"
 
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # MILLAS / VIAJERO FRECUENTE / LOYALTY
+        if any(kw in msg_lower for kw in ['millas', 'viajero frecuente', 'loyalty', 'mis millas', 'puntos']):
+            from app.services.loyalty_service import LoyaltyService
+
+            loyalty_service = LoyaltyService(db)
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+
+            programs = loyalty_service.get_user_programs(user_id)
+            response = loyalty_service.format_for_whatsapp(programs)
             send_whatsapp_message(from_number, response)
             return {"status": "ok"}
 
