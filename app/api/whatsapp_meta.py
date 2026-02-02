@@ -308,7 +308,8 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                         elif hasattr(dep_time, 'strftime'):
                             dep_str = dep_time.strftime("%d/%m %H:%M")
                         elif len(dep_str_raw) >= 10:
-                            dep_str = dep_str_raw[:16] if len(dep_str_raw) >= 16 else dep_str_raw
+                            # Format: 2026-02-10 06:58 -> 10/02 06:58
+                            dep_str = f"{dep_str_raw[8:10]}/{dep_str_raw[5:7]} {dep_str_raw[11:16]}" if len(dep_str_raw) >= 16 else f"{dep_str_raw[8:10]}/{dep_str_raw[5:7]}"
 
                     # Format arrival time
                     arr_str = "N/A"
@@ -319,7 +320,8 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                         elif hasattr(arr_time, 'strftime'):
                             arr_str = arr_time.strftime("%d/%m %H:%M")
                         elif len(arr_str_raw) >= 10:
-                            arr_str = arr_str_raw[:16] if len(arr_str_raw) >= 16 else arr_str_raw
+                            # Format: 2026-02-10 06:58 -> 10/02 06:58
+                            arr_str = f"{arr_str_raw[8:10]}/{arr_str_raw[5:7]} {arr_str_raw[11:16]}" if len(arr_str_raw) >= 16 else f"{arr_str_raw[8:10]}/{arr_str_raw[5:7]}"
 
                     # Label based on flight type
                     if is_direct:
@@ -344,10 +346,27 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                         response_text += f"   ⏱️ Duración: {readable_duration}\n"
                     response_text += "\n"
 
-                # Total duration at the end
-                if duration:
-                    readable_total = parse_iso_duration(duration)
-                    response_text += f"📊 *Duración total:* {readable_total}\n"
+                # Calculate total duration by summing all segments
+                total_minutes = 0
+                for seg in segments:
+                    seg_dur = seg.get("duration", "")
+                    if seg_dur:
+                        match = re.match(r'P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?', seg_dur)
+                        if match:
+                            days = int(match.group(1) or 0)
+                            hours = int(match.group(2) or 0)
+                            mins = int(match.group(3) or 0)
+                            total_minutes += days * 24 * 60 + hours * 60 + mins
+
+                if total_minutes > 0:
+                    total_hours = total_minutes // 60
+                    remaining_mins = total_minutes % 60
+                    if total_hours >= 24:
+                        days = total_hours // 24
+                        hours = total_hours % 24
+                        response_text += f"📊 *Duración total:* {days}d {hours}h {remaining_mins}m\n"
+                    else:
+                        response_text += f"📊 *Duración total:* {total_hours}h {remaining_mins}m\n"
 
                 # Send with interactive buttons
                 send_interactive_message(
