@@ -1,44 +1,45 @@
-import sqlite3
+"""
+Database Migration Script - Add missing columns
+Run this once to update the database schema
+"""
 import os
+from sqlalchemy import create_engine, text
 
-# Path to SQLite database
-db_path = "antigravity.db"
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Connect to database
-conn = sqlite3.connect(db_path)
-cursor = conn.cursor()
+if not DATABASE_URL:
+    print("❌ DATABASE_URL not set")
+    exit(1)
 
-print("🔄 Migrando base de datos...")
+# Fix for Render's postgres:// vs postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Add missing columns
-try:
-    cursor.execute("ALTER TABLE profiles ADD COLUMN seat_position_preference TEXT DEFAULT 'WINDOW'")
-    print("✅ Added seat_position_preference")
-except sqlite3.OperationalError as e:
-    if "duplicate column" in str(e).lower():
-        print("⚠️  seat_position_preference already exists")
-    else:
-        raise
+engine = create_engine(DATABASE_URL)
 
-try:
-    cursor.execute("ALTER TABLE profiles ADD COLUMN preferred_airline TEXT")
-    print("✅ Added preferred_airline")
-except sqlite3.OperationalError as e:
-    if "duplicate column" in str(e).lower():
-        print("⚠️  preferred_airline already exists")
-    else:
-        raise
+migrations = [
+    # Trip table - new columns
+    "ALTER TABLE trips ADD COLUMN IF NOT EXISTS baggage_services TEXT;",
+    "ALTER TABLE trips ADD COLUMN IF NOT EXISTS checkin_status VARCHAR DEFAULT 'NOT_CHECKED_IN';",
+    "ALTER TABLE trips ADD COLUMN IF NOT EXISTS boarding_pass_url VARCHAR;",
+    "ALTER TABLE trips ADD COLUMN IF NOT EXISTS duffel_order_id VARCHAR;",
 
-try:
-    cursor.execute("ALTER TABLE profiles ADD COLUMN preferred_hotel_chains TEXT")
-    print("✅ Added preferred_hotel_chains")
-except sqlite3.OperationalError as e:
-    if "duplicate column" in str(e).lower():
-        print("⚠️  preferred_hotel_chains already exists")
-    else:
-        raise
+    # Notification table - metadata column
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS extra_data TEXT;",
+]
 
-conn.commit()
-conn.close()
+print("🔄 Running database migrations...")
 
-print("\n✅ Migración completa! Ahora reinicia el backend.")
+with engine.connect() as conn:
+    for sql in migrations:
+        try:
+            conn.execute(text(sql))
+            conn.commit()
+            print(f"✅ {sql[:60]}...")
+        except Exception as e:
+            if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
+                print(f"⏭️  Column already exists, skipping...")
+            else:
+                print(f"⚠️  {e}")
+
+print("\n✅ Migrations complete!")

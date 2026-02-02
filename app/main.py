@@ -38,6 +38,32 @@ from app.services.scheduler_service import scheduler_service
 # Create tables
 models.Base.metadata.create_all(bind=engine)
 
+# Run migrations for new columns (safe to run multiple times)
+def run_migrations():
+    """Add missing columns to database"""
+    from sqlalchemy import text
+    migrations = [
+        "ALTER TABLE trips ADD COLUMN IF NOT EXISTS baggage_services TEXT;",
+        "ALTER TABLE trips ADD COLUMN IF NOT EXISTS checkin_status VARCHAR DEFAULT 'NOT_CHECKED_IN';",
+        "ALTER TABLE trips ADD COLUMN IF NOT EXISTS boarding_pass_url VARCHAR;",
+        "ALTER TABLE trips ADD COLUMN IF NOT EXISTS duffel_order_id VARCHAR;",
+        "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS extra_data TEXT;",
+    ]
+    try:
+        with engine.connect() as conn:
+            for sql in migrations:
+                try:
+                    conn.execute(text(sql))
+                    conn.commit()
+                except Exception as e:
+                    if "already exists" not in str(e).lower():
+                        print(f"Migration warning: {e}")
+        print("✅ Database migrations complete")
+    except Exception as e:
+        print(f"⚠️ Migration skipped: {e}")
+
+run_migrations()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
