@@ -546,7 +546,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     segments = flight_dict.get("segments", [])
                     origin = segments[0].get("departure_iata", "N/A") if segments else "N/A"
                     destination = segments[-1].get("arrival_iata", "N/A") if segments else "N/A"
-                    airline = flight_dict.get("airline", "Mock Airlines")
+                    airline = segments[0].get("carrier_code", "N/A") if segments else "N/A"
                     
                     response_text = f"✅ *¡Vuelo reservado!*\n\n"
                     response_text += f"📝 PNR: {pnr}\n"
