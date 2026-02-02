@@ -1382,6 +1382,29 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             send_whatsapp_message(from_number, response)
             return {"status": "ok"}
 
+        # ELIMINAR MILLAS - Must come before generic "millas" handler
+        if 'eliminar millas' in msg_lower or 'quitar millas' in msg_lower or 'borrar millas' in msg_lower:
+            from app.services.loyalty_service import LoyaltyService
+
+            loyalty_service = LoyaltyService(db)
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+
+            # Parse: "eliminar millas AM"
+            parts = incoming_msg.split()
+            if len(parts) >= 3:
+                airline_code = parts[2].upper()
+
+                result = loyalty_service.delete_loyalty(user_id, airline_code)
+                if result.get("success"):
+                    response = f"✅ {result['message']}"
+                else:
+                    response = f"❌ {result.get('error', 'Error al eliminar')}"
+            else:
+                response = "Para eliminar millas escribe:\n'eliminar millas [aerolínea]'\n\nEjemplo: eliminar millas AM"
+
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
         # MILLAS / VIAJERO FRECUENTE / LOYALTY
         if any(kw in msg_lower for kw in ['millas', 'viajero frecuente', 'loyalty', 'mis millas', 'puntos']):
             from app.services.loyalty_service import LoyaltyService
