@@ -680,7 +680,20 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         
         # Command handlers
         msg_lower = incoming_msg.lower().strip()
-        
+
+        # Handle Cancel button click (when there's a selected flight or hotel)
+        if msg_lower == 'no' and (session.get("selected_flight") or session.get("selected_hotel")):
+            # Clear selections
+            session.pop("selected_flight", None)
+            session.pop("selected_hotel", None)
+            session_manager.save_session(from_number, session)
+
+            response_text = "❌ *Reserva cancelada*\n\n"
+            response_text += "Puedes buscar otro vuelo u hotel cuando quieras."
+
+            send_whatsapp_message(from_number, response_text)
+            return {"status": "ok"}
+
         # Ver reservas
         if any(keyword in msg_lower for keyword in ['mis vuelos', 'mis reservas', 'ver reservas', 'mis viajes']):
             from app.models.models import Trip
