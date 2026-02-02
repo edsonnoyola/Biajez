@@ -217,32 +217,27 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         
         # ===== HELP COMMAND =====
         if incoming_msg.lower() in ["ayuda", "help", "que puedes hacer", "qué puedes hacer", "comandos", "menu", "menú"]:
-            help_text = """*Antigravity Travel Assistant*
+            help_text = """*Biatriz - Tu Asistente de Viajes*
 
 *VUELOS*
-- "MEX a MAD el 15 marzo"
-- "Vuelo redondo NYC del 10 al 20"
-- "Solo con Iberia" (filtro aerolinea)
-- "Vuelo en la manana/tarde/noche"
-
-*Aerolineas:* Aeromexico, Iberia, British Airways, American, United, Delta, Volaris, etc.
+- "vuelo de MEX a MAD el 15 marzo"
+- "vuelo redondo a NYC del 10 al 20"
 
 *HOTELES*
-- "Busca hotel en Madrid"
-- "Hotel del 15 al 20 marzo"
+- "hotel en Madrid del 15 al 18 marzo"
+- "hotel en Cancun"
 
 *MIS VIAJES*
 - "itinerario" - Ver tu proximo viaje
-- "historial" - Viajes pasados
-- "equipaje" - Gestionar maletas
-- "checkin" - Recordatorio con link de check-in
+- "historial" - Tus viajes pasados
+- "equipaje" - Agregar maletas
+- "checkin" - Recordatorio de check-in
 
 *VISA*
-- "visa MAD" - Requisitos de visa
+- "visa US" - Requisitos de visa
 
-*PERFIL*
-- "mi perfil" - Ver preferencias
-- "cambiar asiento ventana"
+*OTROS*
+- "reset" - Reiniciar sesion
 
 Que necesitas?"""
             send_whatsapp_message(from_number, help_text)
@@ -996,22 +991,8 @@ Que necesitas?"""
             send_whatsapp_message(from_number, "✅ Tu sesión ha sido reiniciada. ¿A dónde quieres viajar?")
             return {"status": "reset"}
 
-        # Ayuda
-        if msg_lower in ['/ayuda', 'ayuda', 'help', 'comandos']:
-            response_text = "*Comandos disponibles:*\n\n"
-            response_text += "*Vuelos:*\n"
-            response_text += "- Busca vuelos a [destino]\n"
-            response_text += "- Vuelos en la manana/tarde/noche\n"
-            response_text += "- Vuelos directos\n\n"
-            response_text += "*Reservas:*\n"
-            response_text += "- Mis vuelos\n"
-            response_text += "- Cancelar [PNR]\n\n"
-            response_text += "*Hoteles:*\n"
-            response_text += "- Busca hoteles en [ciudad]\n\n"
-            response_text += "_Puedes hablar naturalmente, entiendo espanol!_"
-
-            send_whatsapp_message(from_number, response_text)
-            return {"status": "ok"}
+        # Ayuda (handled above, this is a fallback)
+        # Already handled at top of function
 
         # ===== NEW FEATURE COMMANDS =====
 
