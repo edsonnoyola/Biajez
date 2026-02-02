@@ -1049,8 +1049,15 @@ Que necesitas?"""
 
             return {"status": "ok"}
 
-        # CHECK-IN
-        if any(kw in msg_lower for kw in ['checkin', 'check-in', 'registrarme', 'check in']):
+        # CHECK-IN (but NOT if user is providing hotel dates)
+        # Skip if message contains both "check in" and "check out" (hotel dates)
+        # Skip if message contains numbers (likely dates like "check in 17")
+        is_checkin_command = any(kw in msg_lower for kw in ['checkin', 'check-in', 'registrarme'])
+        has_checkout = 'check out' in msg_lower or 'checkout' in msg_lower
+        has_numbers = any(char.isdigit() for char in incoming_msg)
+        is_hotel_dates = ('check in' in msg_lower and (has_checkout or has_numbers))
+
+        if is_checkin_command or ('check in' in msg_lower and not is_hotel_dates):
             from app.services.checkin_service import CheckinService
             from app.services.itinerary_service import ItineraryService
 
