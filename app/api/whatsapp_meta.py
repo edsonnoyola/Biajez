@@ -922,8 +922,22 @@ Tu asistente de viajes ejecutivos 🌍✈️
                 final_messages.append(msg)
         
         session["messages"] = final_messages
+
+        # CRITICAL: If the last message is assistant with tool_calls but no tool results follow,
+        # we need to remove or fix it. This happens when session was saved mid-processing.
+        if final_messages and final_messages[-1].get("role") == "assistant" and final_messages[-1].get("tool_calls"):
+            print("⚠️ Last message has orphan tool_calls - removing it")
+            final_messages = final_messages[:-1]
+            session["messages"] = final_messages
+            session_manager.save_session(from_number, session)
+
+        # Also limit conversation history to prevent context overflow
+        if len(session["messages"]) > 20:
+            # Keep system context fresh, trim old messages
+            session["messages"] = session["messages"][-20:]
+            print(f"📝 Trimmed conversation history to last 20 messages")
         # -----------------------------------
-        
+
         response_message = await agent.chat(session["messages"], "")
         
         if response_message.tool_calls:
