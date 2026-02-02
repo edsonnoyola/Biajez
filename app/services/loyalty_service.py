@@ -6,22 +6,7 @@ import os
 import httpx
 from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import Column, Integer, String, Text
-from app.db.database import Base
-import json
-
-class LoyaltyProgram(Base):
-    """User loyalty program memberships"""
-    __tablename__ = "loyalty_programs"
-    __table_args__ = {'extend_existing': True}
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String, index=True)
-    airline_code = Column(String)  # IATA code (AM, AA, UA, etc.)
-    program_name = Column(String)  # Club Premier, AAdvantage, etc.
-    member_number = Column(String)
-    tier_status = Column(String)   # Gold, Platinum, etc.
-    extra_data = Column(Text)      # JSON for additional data
+from app.models.models import LoyaltyProgram
 
 
 class LoyaltyService:
@@ -64,9 +49,9 @@ class LoyaltyService:
             ).first()
 
             if existing:
-                existing.member_number = member_number
+                existing.program_number = member_number
                 if tier:
-                    existing.tier_status = tier
+                    existing.tier_level = tier
                 self.db.commit()
                 return {
                     "success": True,
@@ -78,9 +63,8 @@ class LoyaltyService:
                 new_program = LoyaltyProgram(
                     user_id=user_id,
                     airline_code=airline_code,
-                    program_name=program_info['name'],
-                    member_number=member_number,
-                    tier_status=tier
+                    program_number=member_number,
+                    tier_level=tier
                 )
                 self.db.add(new_program)
                 self.db.commit()
@@ -104,9 +88,9 @@ class LoyaltyService:
         return [
             {
                 "airline_code": p.airline_code,
-                "program_name": p.program_name,
-                "member_number": p.member_number,
-                "tier": p.tier_status,
+                "program_name": self.PROGRAMS.get(p.airline_code, {}).get("name", f"{p.airline_code} Program"),
+                "member_number": p.program_number,
+                "tier": p.tier_level,
                 "airline": self.PROGRAMS.get(p.airline_code, {}).get("airline", p.airline_code)
             }
             for p in programs
@@ -122,8 +106,8 @@ class LoyaltyService:
         if program:
             return {
                 "airline_code": program.airline_code,
-                "member_number": program.member_number,
-                "program_name": program.program_name
+                "member_number": program.program_number,
+                "program_name": self.PROGRAMS.get(program.airline_code, {}).get("name", f"{program.airline_code} Program")
             }
         return None
 
@@ -135,9 +119,10 @@ class LoyaltyService:
         ).first()
 
         if program:
+            program_name = self.PROGRAMS.get(program.airline_code, {}).get("name", program.airline_code)
             self.db.delete(program)
             self.db.commit()
-            return {"success": True, "message": f"Programa {program.program_name} eliminado"}
+            return {"success": True, "message": f"Programa {program_name} eliminado"}
 
         return {"success": False, "error": "Programa no encontrado"}
 

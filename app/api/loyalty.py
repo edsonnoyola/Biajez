@@ -52,12 +52,8 @@ def add_loyalty_program(data: LoyaltyCreate, db: Session = Depends(get_db)):
 @router.get("/{user_id}")
 def get_user_loyalty_programs(user_id: str, db: Session = Depends(get_db)):
     """Get all loyalty programs for a user"""
-    try:
-        service = LoyaltyService(db)
-        return service.get_user_programs(user_id)
-    except Exception as e:
-        import traceback
-        return {"error": str(e), "traceback": traceback.format_exc()}
+    service = LoyaltyService(db)
+    return service.get_user_programs(user_id)
 
 
 @router.get("/{user_id}/{airline_code}")
