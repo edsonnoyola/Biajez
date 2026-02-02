@@ -33,24 +33,54 @@ class SmartDateParser:
         """
         # Common patterns
         patterns = [
+            # "check in 17 check out 19", "checkin 17 checkout 19"
+            r'check\s*-?\s*in\s+(\d{1,2}).*?check\s*-?\s*out\s+(\d{1,2})',
             # "Feb 10 to Feb 15", "from Feb 10 to Feb 15"
             r'(?:from\s+)?(\w+\s+\d{1,2})(?:\s+to\s+|\s*-\s*)(\w+\s+\d{1,2})',
             # "10 al 15 de febrero", "del 10 al 15"
             r'(?:del\s+)?(\d{1,2})(?:\s+al\s+|\s*-\s*)(\d{1,2})(?:\s+de\s+)?(\w+)?',
             # "February 10-15", "Feb 10-15"
             r'(\w+)\s+(\d{1,2})\s*-\s*(\d{1,2})',
+            # "17/02/2026" or "17-02-2026"
+            r'(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})',
         ]
         
         text_lower = text.lower()
         
-        for pattern in patterns:
+        for i, pattern in enumerate(patterns):
             match = re.search(pattern, text_lower)
             if match:
                 try:
                     groups = match.groups()
-                    
+
+                    # Pattern 0: "check in 17 check out 19" - just day numbers
+                    if i == 0 and len(groups) == 2:
+                        day1, day2 = int(groups[0]), int(groups[1])
+                        today = datetime.now()
+                        month = today.month
+                        year = today.year
+
+                        # If day already passed this month, use next month
+                        if day1 < today.day:
+                            month += 1
+                            if month > 12:
+                                month = 1
+                                year += 1
+
+                        try:
+                            checkin = datetime(year, month, day1)
+                            checkout = datetime(year, month, day2)
+                            # If checkout is before checkin, checkout is next month
+                            if checkout <= checkin:
+                                checkout = datetime(year, month + 1 if month < 12 else 1, day2)
+                                if month == 12:
+                                    checkout = datetime(year + 1, 1, day2)
+                            return (checkin.strftime('%Y-%m-%d'), checkout.strftime('%Y-%m-%d'))
+                        except ValueError:
+                            pass
+
                     # Pattern 1: "Feb 10 to Feb 15"
-                    if len(groups) == 2 and all(g for g in groups):
+                    elif len(groups) == 2 and all(g for g in groups):
                         if DATEPARSER_AVAILABLE:
                             checkin = dateparser.parse(groups[0], settings={'PREFER_DATES_FROM': 'future'})
                             checkout = dateparser.parse(groups[1], settings={'PREFER_DATES_FROM': 'future'})

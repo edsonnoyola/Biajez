@@ -1327,13 +1327,17 @@ Que necesitas?"""
             print(f"📝 Trimmed conversation history to last 10 messages")
         # -----------------------------------
 
-        # Build session context for AI
+        # Build session context for AI - include all relevant state
         session_context = {
             "pending_hotel_search": session.get("pending_hotel_search"),
+            "pending_flights": bool(session.get("pending_flights")),  # True if flights shown
+            "pending_hotels": bool(session.get("pending_hotels")),    # True if hotels shown
             "awaiting_flight_confirmation": session.get("awaiting_flight_confirmation"),
             "awaiting_hotel_confirmation": session.get("awaiting_hotel_confirmation"),
             "last_search_type": session.get("last_search_type"),
             "hotel_dates": session.get("hotel_dates"),
+            "selected_flight": bool(session.get("selected_flight")),  # True if flight selected
+            "selected_hotel": bool(session.get("selected_hotel")),    # True if hotel selected
         }
 
         response_message = await agent.chat(session["messages"], "", session_context)
