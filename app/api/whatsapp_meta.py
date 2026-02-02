@@ -1025,10 +1025,14 @@ Que necesitas?"""
         # Already handled at top of function
 
         # ===== NEW FEATURE COMMANDS =====
+        # IMPORTANT: Skip these handlers if user is in the middle of a hotel/flight search
+        # This allows the AI to handle context-aware conversations
+        has_pending_search = session.get("pending_hotel_search") or session.get("pending_flights") or session.get("pending_hotels")
 
-        # EQUIPAJE / BAGGAGE
+        # EQUIPAJE / BAGGAGE - Only if explicit standalone command
         print(f"🧳 DEBUG checking equipaje: msg_lower='{msg_lower}', contains equipaje: {'equipaje' in msg_lower}")
-        if any(kw in msg_lower for kw in ['equipaje', 'maletas', 'baggage', 'maleta']):
+        is_equipaje_command = msg_lower.strip() in ['equipaje', 'maletas', 'baggage', 'maleta', 'mi equipaje']
+        if is_equipaje_command and not has_pending_search:
             from app.services.baggage_service import BaggageService
             from app.services.itinerary_service import ItineraryService
 
@@ -1049,15 +1053,16 @@ Que necesitas?"""
 
             return {"status": "ok"}
 
-        # CHECK-IN (but NOT if user is providing hotel dates)
+        # CHECK-IN (but NOT if user is providing hotel dates or in middle of search)
         # Skip if message contains both "check in" and "check out" (hotel dates)
         # Skip if message contains numbers (likely dates like "check in 17")
-        is_checkin_command = any(kw in msg_lower for kw in ['checkin', 'check-in', 'registrarme'])
+        # Skip if there's a pending hotel/flight search
+        is_checkin_command = msg_lower.strip() in ['checkin', 'check-in', 'registrarme', 'mi checkin']
         has_checkout = 'check out' in msg_lower or 'checkout' in msg_lower
         has_numbers = any(char.isdigit() for char in incoming_msg)
         is_hotel_dates = ('check in' in msg_lower and (has_checkout or has_numbers))
 
-        if is_checkin_command or ('check in' in msg_lower and not is_hotel_dates):
+        if is_checkin_command and not has_pending_search and not is_hotel_dates:
             from app.services.checkin_service import CheckinService
             from app.services.itinerary_service import ItineraryService
 
@@ -1322,7 +1327,16 @@ Que necesitas?"""
             print(f"📝 Trimmed conversation history to last 10 messages")
         # -----------------------------------
 
-        response_message = await agent.chat(session["messages"], "")
+        # Build session context for AI
+        session_context = {
+            "pending_hotel_search": session.get("pending_hotel_search"),
+            "awaiting_flight_confirmation": session.get("awaiting_flight_confirmation"),
+            "awaiting_hotel_confirmation": session.get("awaiting_hotel_confirmation"),
+            "last_search_type": session.get("last_search_type"),
+            "hotel_dates": session.get("hotel_dates"),
+        }
+
+        response_message = await agent.chat(session["messages"], "", session_context)
         
         if response_message.tool_calls:
             session["messages"].append(response_message.model_dump())
@@ -1444,7 +1458,7 @@ Que necesitas?"""
                 })
                 session_manager.save_session(from_number, session)  # Save after tool result
             
-            final_response = await agent.chat(session["messages"], "")
+            final_response = await agent.chat(session["messages"], "", session_context)
             session["messages"].append({"role": "assistant", "content": final_response.content})
             session_manager.save_session(from_number, session)  # Save final AI response
             response_text = final_response.content

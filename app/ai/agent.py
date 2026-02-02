@@ -8,12 +8,25 @@ class AntigravityAgent:
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = "gpt-4o"
 
-    @property
-    def system_prompt(self) -> str:
+    def get_system_prompt(self, context: Dict[str, Any] = None) -> str:
+        """Generate system prompt with optional session context"""
         from datetime import datetime
         today = datetime.now().strftime("%Y-%m-%d")
-        return f"""You are Antigravity, the executive travel OS.
-Current Date: {today}
+
+        context_str = ""
+        if context:
+            if context.get("pending_hotel_search"):
+                city = context["pending_hotel_search"].get("city", "")
+                context_str += f"\n\nCONTEXTO ACTUAL: El usuario está buscando hoteles en {city}. Necesitas las fechas de check-in y check-out."
+            if context.get("awaiting_flight_confirmation"):
+                context_str += f"\n\nCONTEXTO ACTUAL: El usuario está por confirmar un vuelo. Espera 'sí' o 'confirmar'."
+            if context.get("awaiting_hotel_confirmation"):
+                context_str += f"\n\nCONTEXTO ACTUAL: El usuario está por confirmar un hotel. Espera 'sí' o 'confirmar'."
+            if context.get("last_search_type"):
+                context_str += f"\n\nÚLTIMA BÚSQUEDA: {context['last_search_type']}"
+
+        return f"""You are Biatriz, the intelligent travel assistant.
+Current Date: {today}{context_str}
 
 CAPABILITIES:
 Real-time booking of Flights (Amadeus/Duffel) and Hotels (LiteAPI/Amadeus).
@@ -261,12 +274,17 @@ RULES:
             }
         ]
 
-    async def chat(self, messages: List[Dict[str, str]], user_context: str = "") -> Any:
-        # Create a copy with system prompt + user context
-        system_content = self.system_prompt
+    @property
+    def system_prompt(self) -> str:
+        """Backwards compatibility - returns default system prompt"""
+        return self.get_system_prompt()
+
+    async def chat(self, messages: List[Dict[str, str]], user_context: str = "", session_context: Dict[str, Any] = None) -> Any:
+        # Create a copy with system prompt + user context + session context
+        system_content = self.get_system_prompt(session_context)
         if user_context:
             system_content += f"\n\nUSER CONTEXT:\n{user_context}"
-            
+
         full_messages = [{"role": "system", "content": system_content}] + messages
 
         print(f"DEBUG: Sending {len(full_messages)} messages to OpenAI")
