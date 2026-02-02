@@ -485,9 +485,11 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 flight_dict = flight.__dict__ if hasattr(flight, '__dict__') else {}
 
             
-            offer_id = flight_dict.get("id")
+            offer_id = flight_dict.get("offer_id")  # Fixed: was "id", should be "offer_id"
             provider = flight_dict.get("provider", "duffel")
             price = flight_dict.get("price", "0.00")
+
+            print(f"🔍 DEBUG booking: offer_id={offer_id}, provider={provider}, price={price}")
             
             try:
                 # MOCK BOOKING FOR TEST FLIGHTS (avoid Duffel 422 errors)
