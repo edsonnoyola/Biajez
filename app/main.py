@@ -31,6 +31,10 @@ from app.api import baggage
 from app.api import itinerary
 from app.api import visa
 from app.api import checkin
+from app.api import loyalty
+from app.api import ancillary
+from app.api import hold_orders
+from app.api import price_alerts
 
 # NEW: Import scheduler service
 from app.services.scheduler_service import scheduler_service
@@ -104,7 +108,7 @@ async def lifespan(app: FastAPI):
     Application lifespan handler for startup/shutdown events
     """
     # Startup
-    print("Starting Antigravity API...")
+    print("Starting Biatriz API...")
 
     # Start the background scheduler
     try:
@@ -116,7 +120,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    print("Shutting down Antigravity API...")
+    print("Shutting down Biatriz API...")
     try:
         scheduler_service.shutdown()
         print("Background scheduler stopped")
@@ -125,7 +129,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Antigravity API",
+    title="Biatriz API",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -153,11 +157,15 @@ app.include_router(baggage.router)
 app.include_router(itinerary.router)
 app.include_router(visa.router)
 app.include_router(checkin.router)
+app.include_router(loyalty.router)
+app.include_router(ancillary.router)
+app.include_router(hold_orders.router)
+app.include_router(price_alerts.router)
 
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to Antigravity API"}
+    return {"message": "Welcome to Biatriz API"}
 
 
 @app.get("/scheduler/status")
