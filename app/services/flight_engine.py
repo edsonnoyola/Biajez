@@ -313,7 +313,7 @@ class FlightAggregator:
                     for seg in slice['segments']:
                         segments.append(FlightSegment(
                             carrier_code=seg['operating_carrier']['iata_code'],
-                            flight_number=seg.get('operating_carrier_flight_number') or "UNKNOWN",
+                            flight_number=seg.get('operating_carrier_flight_number') or seg.get('marketing_carrier_flight_number') or "",
                             departure_iata=seg['origin']['iata_code'],
                             arrival_iata=seg['destination']['iata_code'],
                             departure_time=datetime.fromisoformat(seg['departing_at']),
