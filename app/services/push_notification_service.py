@@ -88,6 +88,27 @@ class PushNotificationService:
 
         return await self.send_message(phone_number, message)
 
+    async def send_checkin_reminder(
+        self,
+        phone_number: str,
+        pnr: str,
+        airline: str,
+        checkin_url: Optional[str] = None
+    ) -> dict:
+        """Send check-in window open reminder with airline link - Spanish"""
+        message = f"*Check-in disponible*\n\n"
+        message += f"PNR: {pnr}\n"
+        message += f"Aerolinea: {airline}\n\n"
+
+        if checkin_url:
+            message += f"Haz check-in aqui:\n{checkin_url}\n\n"
+
+        message += "Recuerda:\n"
+        message += "- Llegar 2-3h antes al aeropuerto\n"
+        message += "- Llevar ID/pasaporte"
+
+        return await self.send_message(phone_number, message)
+
     async def send_flight_change_alert(
         self,
         phone_number: str,

@@ -141,7 +141,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 incoming_msg = "no"  # Treat as cancellation
             elif "buscar" in button_title.lower() or "🔄" in button_title:
                 incoming_msg = "buscar otro"
-            elif "auto check-in" in button_title.lower() or "auto checkin" in button_title.lower():
+            elif "auto check-in" in button_title.lower() or "auto checkin" in button_title.lower() or "avisarme" in button_title.lower():
                 incoming_msg = "auto checkin"
             elif "check-in" in button_title.lower() or "checkin" in button_title.lower():
                 incoming_msg = "checkin"
@@ -227,7 +227,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 - "itinerario" - Ver tu proximo viaje
 - "historial" - Viajes pasados
 - "equipaje" - Gestionar maletas
-- "checkin" - Check-in automatico
+- "checkin" - Recordatorio con link de check-in
 
 *VISA*
 - "visa MAD" - Requisitos de visa
@@ -1037,7 +1037,7 @@ Que necesitas?"""
 
             return {"status": "ok"}
 
-        # Auto check-in activation
+        # Auto check-in activation (actually a reminder with check-in link)
         if 'auto checkin' in msg_lower or 'autocheckin' in msg_lower:
             from app.services.checkin_service import CheckinService
             from app.services.itinerary_service import ItineraryService
@@ -1064,14 +1064,14 @@ Que necesitas?"""
                     )
 
                     if result.get("success"):
-                        response = f"*Auto check-in activado*\n\n"
+                        response = f"*Recordatorio de check-in activado*\n\n"
                         response += f"PNR: {pnr}\n"
-                        response += f"Programado: {result.get('scheduled_time')}\n\n"
-                        response += "Te avisare cuando estes registrado."
+                        response += f"Te aviso: {result.get('message', '24h antes')}\n\n"
+                        response += "Te enviare el link de check-in de la aerolinea cuando se abra."
                     else:
-                        response = f"No pude activar auto check-in: {result.get('error')}"
+                        response = f"No pude activar recordatorio: {result.get('error')}"
                 else:
-                    response = "Necesito tu perfil para activar auto check-in. Escribe 'mi perfil'."
+                    response = "Necesito tu perfil para activar el recordatorio. Escribe 'mi perfil'."
             else:
                 response = "No tienes viajes proximos."
 

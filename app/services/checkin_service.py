@@ -313,19 +313,21 @@ class CheckinService:
             }
 
     async def _notify_checkin_success(self, checkin: AutoCheckin, result: Dict) -> None:
-        """Notify user of successful check-in"""
+        """Notify user that check-in window is open with airline link"""
         from app.services.push_notification_service import PushNotificationService
+
+        checkin_url = result.get("checkin_url", "")
+        airline = result.get("airline", checkin.airline_code)
 
         # Create notification
         notification = Notification(
             id=f"not_{str(uuid.uuid4())[:20]}",
             user_id=checkin.user_id,
-            type="checkin_success",
-            title="Check-in Complete!",
-            message=f"You're checked in for flight {checkin.pnr}. " +
-                   (f"Seat: {result.get('seat_assignment', 'See boarding pass')}" if result.get('seat_assignment') else ""),
+            type="checkin_reminder",
+            title="Check-in disponible",
+            message=f"Ya puedes hacer check-in para {checkin.pnr}",
             read=0,
-            action_required=0,
+            action_required=1,
             created_at=datetime.utcnow().isoformat(),
             extra_data=json.dumps(result)
         )
@@ -333,15 +335,15 @@ class CheckinService:
         self.db.add(notification)
         self.db.commit()
 
-        # Send WhatsApp
+        # Send WhatsApp with check-in link
         profile = self.db.query(Profile).filter(Profile.user_id == checkin.user_id).first()
         if profile and profile.phone_number:
             push_service = PushNotificationService()
-            await push_service.send_checkin_notification(
+            await push_service.send_checkin_reminder(
                 phone_number=profile.phone_number,
                 pnr=checkin.pnr,
-                seat=result.get("seat_assignment"),
-                boarding_pass_url=result.get("boarding_pass_url")
+                airline=airline,
+                checkin_url=checkin_url
             )
 
     async def _notify_checkin_failure(self, checkin: AutoCheckin, error: str) -> None:
@@ -400,12 +402,14 @@ class CheckinService:
                         from datetime import datetime
                         dt = datetime.fromisoformat(scheduled)
                         formatted = dt.strftime("%d %b %H:%M")
-                        lines.append(f"\nAuto check-in: {formatted}")
+                        lines.append(f"\nRecordatorio: {formatted}")
+                        lines.append("Te enviare el link de check-in")
                     except:
-                        lines.append(f"\nAuto check-in programado")
+                        lines.append(f"\nRecordatorio programado")
                 elif ac_status == "FAILED":
-                    lines.append("\nAuto check-in fallo")
-                    lines.append("Hazlo manual en la aerolinea")
+                    lines.append("\nNo pude enviarte el recordatorio")
+                elif ac_status == "COMPLETED":
+                    lines.append("\nYa te envie el link de check-in")
 
         return "\n".join(lines)
 
@@ -417,7 +421,7 @@ class CheckinService:
 
         if status_text != "CHECKED_IN":
             if not status.get("auto_checkin"):
-                buttons.append({"id": "btn_auto_checkin", "title": "Auto check-in"})
+                buttons.append({"id": "btn_recordatorio", "title": "Avisarme"})
             else:
                 ac_status = status.get("auto_checkin", {}).get("status", "")
                 if ac_status == "FAILED":
