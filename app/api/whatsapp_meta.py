@@ -563,21 +563,74 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     
                     # Get flight details from dict
                     segments = flight_dict.get("segments", [])
-                    airline = segments[0].get("carrier_code", "N/A") if segments else "N/A"
-
-                    # Build route summary for all segments
-                    route_parts = []
-                    for seg in segments:
-                        seg_origin = seg.get("departure_iata", "?")
-                        seg_dest = seg.get("arrival_iata", "?")
-                        route_parts.append(f"{seg_origin}→{seg_dest}")
-                    route_summary = " | ".join(route_parts) if route_parts else "N/A"
 
                     response_text = f"✅ *¡Vuelo reservado!*\n\n"
-                    response_text += f"📝 PNR: {pnr}\n"
-                    response_text += f"✈️ {route_summary}\n"
-                    response_text += f"🏢 {airline}\n"
-                    response_text += f"💰 Total: ${price}\n\n"
+                    response_text += f"📝 *PNR:* {pnr}\n"
+                    response_text += f"💰 *Total:* ${price}\n\n"
+
+                    # Show details for each segment
+                    total_minutes = 0
+                    for idx, seg in enumerate(segments, 1):
+                        seg_origin = seg.get("departure_iata", "?")
+                        seg_dest = seg.get("arrival_iata", "?")
+                        seg_airline = seg.get("carrier_code", "N/A")
+                        seg_flight_num = seg.get("flight_number", "")
+                        seg_duration = seg.get("duration", "")
+                        dep_time = seg.get("departure_time", "")
+                        arr_time = seg.get("arrival_time", "")
+
+                        # Format times
+                        dep_str = "N/A"
+                        if dep_time:
+                            dep_raw = str(dep_time)
+                            if len(dep_raw) >= 16:
+                                dep_str = f"{dep_raw[8:10]}/{dep_raw[5:7]} {dep_raw[11:16]}"
+
+                        arr_str = "N/A"
+                        if arr_time:
+                            arr_raw = str(arr_time)
+                            if len(arr_raw) >= 16:
+                                arr_str = f"{arr_raw[8:10]}/{arr_raw[5:7]} {arr_raw[11:16]}"
+
+                        # Flight ID
+                        flight_id = seg_airline
+                        if seg_flight_num:
+                            flight_id += f" {seg_flight_num}"
+
+                        # Parse duration
+                        readable_dur = parse_iso_duration(seg_duration)
+                        if seg_duration:
+                            match = re.match(r'P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?', seg_duration)
+                            if match:
+                                days = int(match.group(1) or 0)
+                                hours = int(match.group(2) or 0)
+                                mins = int(match.group(3) or 0)
+                                total_minutes += days * 24 * 60 + hours * 60 + mins
+
+                        # Segment label
+                        if len(segments) == 1:
+                            label = "✈️ Vuelo"
+                        else:
+                            label = f"✈️ Tramo {idx}"
+
+                        response_text += f"*{label}:* {seg_origin}→{seg_dest}\n"
+                        response_text += f"   {flight_id}\n"
+                        response_text += f"   🛫 {dep_str} → 🛬 {arr_str}\n"
+                        if readable_dur:
+                            response_text += f"   ⏱️ {readable_dur}\n"
+                        response_text += "\n"
+
+                    # Total duration
+                    if total_minutes > 0:
+                        total_hours = total_minutes // 60
+                        remaining_mins = total_minutes % 60
+                        if total_hours >= 24:
+                            days = total_hours // 24
+                            hours = total_hours % 24
+                            response_text += f"📊 *Duración total:* {days}d {hours}h {remaining_mins}m\n\n"
+                        else:
+                            response_text += f"📊 *Duración total:* {total_hours}h {remaining_mins}m\n\n"
+
                     response_text += f"✨ *Reserva confirmada*"
                     
                     send_whatsapp_message(from_number, response_text)
