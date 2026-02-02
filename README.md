@@ -7,7 +7,7 @@ Bot de WhatsApp + Web App para reservaciones de vuelos y hoteles con IA conversa
 | Servicio | URL |
 |----------|-----|
 | Backend API | https://biajez-ah0g.onrender.com |
-| Frontend Web | https://frontend-1wqjie9nz-edsons-projects-2a12b3a9.vercel.app |
+| Frontend Web | https://frontend-60c09mm87-edsons-projects-2a12b3a9.vercel.app |
 | WhatsApp Bot | https://wa.me/5215651861011 |
 | API Docs | https://biajez-ah0g.onrender.com/docs |
 
