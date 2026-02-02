@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Date, Enum, ForeignKey, Numeric, Integer
+from sqlalchemy import Column, String, Date, Enum, ForeignKey, Numeric, Integer, Text, DateTime, Boolean, Float
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import enum
@@ -129,6 +129,11 @@ class Trip(Base):
     payment_id = Column(String, ForeignKey("payments.id"), nullable=True)
     payment = relationship("Payment", back_populates="trip")
 
+    # NEW: Baggage and check-in fields
+    baggage_services = Column(Text, nullable=True)  # JSON of purchased baggage services
+    checkin_status = Column(String, default='NOT_CHECKED_IN')  # NOT_CHECKED_IN, SCHEDULED, CHECKED_IN, FAILED
+    boarding_pass_url = Column(String, nullable=True)  # URL to boarding pass PDF
+
 class Payment(Base):
     __tablename__ = "payments"
     
@@ -187,7 +192,7 @@ class WebhookEvent(Base):
 
 class Notification(Base):
     __tablename__ = "notifications"
-    
+
     id = Column(String, primary_key=True)
     user_id = Column(String, ForeignKey("profiles.user_id"), nullable=False)
     type = Column(String, nullable=False)
@@ -197,5 +202,58 @@ class Notification(Base):
     action_required = Column(Integer, default=0)
     related_order_id = Column(String, nullable=True)
     created_at = Column(String, nullable=False)
-    
+    extra_data = Column(Text, nullable=True)  # JSON for additional notification data
+
     profile = relationship("Profile")
+
+
+# --- NEW TABLES FOR FEATURES 4-10 ---
+
+class CheckinStatusEnum(str, enum.Enum):
+    PENDING = "PENDING"
+    SCHEDULED = "SCHEDULED"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
+class AutoCheckin(Base):
+    """Auto check-in scheduling for trips"""
+    __tablename__ = "auto_checkins"
+
+    id = Column(String, primary_key=True, default=lambda: f"aci_{str(uuid.uuid4())[:20]}")
+    user_id = Column(String, ForeignKey("profiles.user_id"), nullable=False)
+    trip_id = Column(String, ForeignKey("trips.booking_reference"), nullable=False)
+    airline_code = Column(String(2), nullable=False)  # IATA code
+    pnr = Column(String, nullable=False)
+    passenger_last_name = Column(String, nullable=False)  # Required for check-in
+    scheduled_time = Column(String, nullable=False)  # ISO timestamp - when to attempt check-in
+    status = Column(Enum(CheckinStatusEnum), default=CheckinStatusEnum.PENDING)
+    checkin_result = Column(Text, nullable=True)  # JSON result from airline
+    error_message = Column(String, nullable=True)
+    processed_at = Column(String, nullable=True)  # ISO timestamp when processed
+    created_at = Column(String, nullable=False)
+
+    profile = relationship("Profile")
+    trip = relationship("Trip")
+
+
+class VisaRequirement(Base):
+    """Cached visa requirements between countries"""
+    __tablename__ = "visa_requirements"
+
+    id = Column(String, primary_key=True, default=lambda: f"vr_{str(uuid.uuid4())[:20]}")
+    passport_country = Column(String(2), nullable=False)  # ISO country code
+    destination_country = Column(String(2), nullable=False)  # ISO country code
+    visa_required = Column(Boolean, nullable=False)
+    visa_on_arrival = Column(Boolean, default=False)
+    e_visa_available = Column(Boolean, default=False)
+    max_stay_days = Column(Integer, nullable=True)
+    requirements_text = Column(Text, nullable=True)  # Detailed requirements
+    notes = Column(Text, nullable=True)  # Additional notes
+    last_updated = Column(String, nullable=False)  # ISO timestamp
+
+    # Unique constraint on passport+destination
+    __table_args__ = (
+        {'extend_existing': True},
+    )

@@ -201,6 +201,63 @@ RULES:
                         "required": []
                     }
                 }
+            },
+            # NEW TOOLS FOR FEATURES 4-10
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_baggage_options",
+                    "description": "Get available baggage options for a flight booking. Returns current baggage and available add-ons.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "pnr": {"type": "string", "description": "Booking reference (PNR) or Duffel order ID"}
+                        },
+                        "required": ["pnr"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "check_visa_requirements",
+                    "description": "Check visa requirements for a destination based on user's passport country.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "destination": {"type": "string", "description": "Destination IATA code or country code (e.g., MAD, ES, US)"}
+                        },
+                        "required": ["destination"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_travel_history",
+                    "description": "Get user's travel history including past and upcoming trips.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "include_past": {"type": "boolean", "description": "Include past/cancelled trips (default true)", "default": True}
+                        },
+                        "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_full_itinerary",
+                    "description": "Get complete itinerary for a trip including flight, hotel, check-in status, and documents.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "pnr": {"type": "string", "description": "Booking reference (PNR). If not provided, returns the next upcoming trip."}
+                        },
+                        "required": []
+                    }
+                }
             }
         ]
 

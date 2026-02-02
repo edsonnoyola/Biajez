@@ -124,12 +124,16 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         # Handle interactive button responses
         if message_type == "interactive":
             interactive = message.get("interactive", {})
+            print(f"🔍 DEBUG interactive object: {interactive}")
+            interactive_type = interactive.get("type", "")
+            print(f"🔍 DEBUG interactive_type: {interactive_type}")
             button_reply = interactive.get("button_reply", {})
             button_id = button_reply.get("id", "")
             button_title = button_reply.get("title", "")
             
             print(f"📱 Button click from {from_number}: {button_title} (id: {button_id})")
-            
+            print(f"📱 DEBUG button_title.lower() = '{button_title.lower()}'")
+
             # Map button clicks to text commands
             if "confirmar" in button_title.lower() or "✅" in button_title:
                 incoming_msg = "si"  # Treat as confirmation
@@ -137,6 +141,18 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 incoming_msg = "no"  # Treat as cancellation
             elif "buscar" in button_title.lower() or "🔄" in button_title:
                 incoming_msg = "buscar otro"
+            elif "auto check-in" in button_title.lower() or "auto checkin" in button_title.lower():
+                incoming_msg = "auto checkin"
+            elif "check-in" in button_title.lower() or "checkin" in button_title.lower():
+                incoming_msg = "checkin"
+            elif "equipaje" in button_title.lower() or "maleta" in button_title.lower():
+                incoming_msg = "equipaje"
+            elif "itinerario" in button_title.lower():
+                incoming_msg = "itinerario"
+            elif "ayuda" in button_title.lower():
+                incoming_msg = "ayuda"
+            elif "buscar vuelo" in button_title.lower():
+                incoming_msg = "quiero buscar un vuelo"
             else:
                 incoming_msg = button_title  # Use button text directly
         elif message_type == "text":
@@ -193,33 +209,34 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         
         # ===== HELP COMMAND =====
         if incoming_msg.lower() in ["ayuda", "help", "que puedes hacer", "qué puedes hacer", "comandos", "menu", "menú"]:
-            help_text = """🤖 *Antigravity Travel Assistant*
+            help_text = """*Antigravity Travel Assistant*
 
-*VUELOS* ✈️
-• "MEX a MAD el 15 marzo"
-• "Vuelo redondo NYC del 10 al 20"
-• "Solo con Iberia" (filtro aerolínea)
-• "Vuelo en la mañana/tarde/noche"
+*VUELOS*
+- "MEX a MAD el 15 marzo"
+- "Vuelo redondo NYC del 10 al 20"
+- "Solo con Iberia" (filtro aerolinea)
+- "Vuelo en la manana/tarde/noche"
 
-*Aerolíneas:* Aeroméxico, Iberia, British Airways, American, United, Delta, Volaris, etc.
+*Aerolineas:* Aeromexico, Iberia, British Airways, American, United, Delta, Volaris, etc.
 
-*Horarios:*
-🌅 Madrugada (0-6h)
-☀️ Mañana (6-12h)
-🌤️ Tarde (12-18h)
-🌙 Noche (18-22h)
+*HOTELES*
+- "Busca hotel en Madrid"
+- "Hotel del 15 al 20 marzo"
 
-*HOTELES* 🏨
-• "Busca hotel en Madrid"
-• "Hotel del 15 al 20 marzo"
-• "Cerca del aeropuerto"
+*MIS VIAJES*
+- "itinerario" - Ver tu proximo viaje
+- "historial" - Viajes pasados
+- "equipaje" - Gestionar maletas
+- "checkin" - Check-in automatico
 
-*PERFIL* 👤
-• "Mi perfil" - Ver preferencias
-• "Cambiar asiento ventana"
-• "Cambiar clase business"
+*VISA*
+- "visa MAD" - Requisitos de visa
 
-¿Qué necesitas? 😊"""
+*PERFIL*
+- "mi perfil" - Ver preferencias
+- "cambiar asiento ventana"
+
+Que necesitas?"""
             send_whatsapp_message(from_number, help_text)
             return {"status": "ok"}
         
@@ -958,20 +975,186 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
         # Ayuda
         if msg_lower in ['/ayuda', 'ayuda', 'help', 'comandos']:
-            response_text = "🤖 *Comandos disponibles:*\n\n"
-            response_text += "✈️ *Vuelos:*\n"
-            response_text += "• Busca vuelos a [destino]\n"
-            response_text += "• Vuelos en la mañana/tarde/noche\n"
-            response_text += "• Vuelos directos\n\n"
-            response_text += "📋 *Reservas:*\n"
-            response_text += "• Mis vuelos\n"
-            response_text += "• Cancelar [PNR]\n\n"
-            response_text += "🏨 *Hoteles:*\n"
-            response_text += "• Busca hoteles en [ciudad]\n\n"
-            response_text += "💡 _Puedes hablar naturalmente, entiendo español!_"
-            
+            response_text = "*Comandos disponibles:*\n\n"
+            response_text += "*Vuelos:*\n"
+            response_text += "- Busca vuelos a [destino]\n"
+            response_text += "- Vuelos en la manana/tarde/noche\n"
+            response_text += "- Vuelos directos\n\n"
+            response_text += "*Reservas:*\n"
+            response_text += "- Mis vuelos\n"
+            response_text += "- Cancelar [PNR]\n\n"
+            response_text += "*Hoteles:*\n"
+            response_text += "- Busca hoteles en [ciudad]\n\n"
+            response_text += "_Puedes hablar naturalmente, entiendo espanol!_"
+
             send_whatsapp_message(from_number, response_text)
             return {"status": "ok"}
+
+        # ===== NEW FEATURE COMMANDS =====
+
+        # EQUIPAJE / BAGGAGE
+        print(f"🧳 DEBUG checking equipaje: msg_lower='{msg_lower}', contains equipaje: {'equipaje' in msg_lower}")
+        if any(kw in msg_lower for kw in ['equipaje', 'maletas', 'baggage', 'maleta']):
+            from app.services.baggage_service import BaggageService
+            from app.services.itinerary_service import ItineraryService
+
+            baggage_service = BaggageService(db)
+            itinerary_service = ItineraryService(db)
+
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+            upcoming = itinerary_service.get_upcoming_trip(user_id)
+
+            if upcoming and upcoming.get("success"):
+                pnr = upcoming.get("booking_reference")
+                baggage_data = baggage_service.get_trip_baggage(pnr)
+                response = baggage_service.format_baggage_for_whatsapp(baggage_data)
+                buttons = baggage_service.format_baggage_buttons(baggage_data)
+                send_interactive_message(from_number, response, [b["title"] for b in buttons])
+            else:
+                send_whatsapp_message(from_number, "No tienes viajes proximos.\n\nBusca un vuelo para ver opciones de equipaje.")
+
+            return {"status": "ok"}
+
+        # CHECK-IN
+        if any(kw in msg_lower for kw in ['checkin', 'check-in', 'registrarme', 'check in']):
+            from app.services.checkin_service import CheckinService
+            from app.services.itinerary_service import ItineraryService
+
+            checkin_service = CheckinService(db)
+            itinerary_service = ItineraryService(db)
+
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+            upcoming = itinerary_service.get_upcoming_trip(user_id)
+
+            if upcoming and upcoming.get("success"):
+                pnr = upcoming.get("booking_reference")
+                status = checkin_service.get_checkin_status(pnr)
+                response = checkin_service.format_status_for_whatsapp(status)
+                buttons = checkin_service.format_checkin_buttons(status)
+                send_interactive_message(from_number, response, [b["title"] for b in buttons])
+            else:
+                send_whatsapp_message(from_number, "No tienes viajes proximos.\n\nBusca un vuelo primero.")
+
+            return {"status": "ok"}
+
+        # Auto check-in activation
+        if 'auto checkin' in msg_lower or 'autocheckin' in msg_lower:
+            from app.services.checkin_service import CheckinService
+            from app.services.itinerary_service import ItineraryService
+
+            checkin_service = CheckinService(db)
+            itinerary_service = ItineraryService(db)
+
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+            upcoming = itinerary_service.get_upcoming_trip(user_id)
+
+            if upcoming and upcoming.get("success"):
+                pnr = upcoming.get("booking_reference")
+                # Get passenger info from profile
+                profile = db.query(Profile).filter(Profile.user_id == user_id).first()
+
+                if profile:
+                    result = checkin_service.schedule_auto_checkin(
+                        user_id=user_id,
+                        trip_id=pnr,
+                        airline_code="AM",  # Would need to get from trip
+                        pnr=pnr,
+                        passenger_last_name=profile.legal_last_name,
+                        departure_time=upcoming.get("flight", {}).get("departure_date", "")
+                    )
+
+                    if result.get("success"):
+                        response = f"*Auto check-in activado*\n\n"
+                        response += f"PNR: {pnr}\n"
+                        response += f"Programado: {result.get('scheduled_time')}\n\n"
+                        response += "Te avisare cuando estes registrado."
+                    else:
+                        response = f"No pude activar auto check-in: {result.get('error')}"
+                else:
+                    response = "Necesito tu perfil para activar auto check-in. Escribe 'mi perfil'."
+            else:
+                response = "No tienes viajes proximos."
+
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # ITINERARIO / MY TRIP
+        if any(kw in msg_lower for kw in ['itinerario', 'mi viaje', 'mi reserva', 'mi vuelo']):
+            from app.services.itinerary_service import ItineraryService
+
+            itinerary_service = ItineraryService(db)
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+
+            upcoming = itinerary_service.get_upcoming_trip(user_id)
+
+            if upcoming:
+                response = itinerary_service.format_itinerary_for_whatsapp(upcoming)
+                buttons = itinerary_service.format_itinerary_buttons(upcoming)
+                send_interactive_message(from_number, response, [b["title"] for b in buttons])
+            else:
+                send_whatsapp_message(from_number, "No tienes viajes proximos.\n\nBusca un vuelo para comenzar.")
+
+            return {"status": "ok"}
+
+        # HISTORIAL / TRAVEL HISTORY
+        if any(kw in msg_lower for kw in ['historial', 'mis viajes', 'history', 'viajes pasados']):
+            from app.services.itinerary_service import ItineraryService
+
+            itinerary_service = ItineraryService(db)
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+
+            trips = itinerary_service.get_user_itineraries(user_id, include_past=True)
+
+            if trips:
+                response = "*Tu historial de viajes*\n\n"
+                for i, trip in enumerate(trips[:10], 1):
+                    status_icon = {"TICKETED": "", "CONFIRMED": "", "CANCELLED": ""}.get(trip.get("status", ""), "")
+                    response += f"{i}. {trip['route']}\n"
+                    response += f"   {trip.get('departure_date', 'N/A')} {status_icon}\n"
+                    response += f"   PNR: {trip['booking_reference']}\n\n"
+
+                if len(trips) > 10:
+                    response += f"...y {len(trips) - 10} viajes mas."
+
+                # Buttons for history
+                buttons = ["Buscar vuelo", "Ayuda"]
+                send_interactive_message(from_number, response, buttons)
+            else:
+                send_whatsapp_message(from_number, "No tienes viajes en tu historial.\n\nBusca un vuelo para comenzar.")
+
+            return {"status": "ok"}
+
+        # VISA
+        if any(kw in msg_lower for kw in ['visa', 'necesito visa', 'requisitos visa']):
+            from app.services.visa_service import VisaService
+
+            visa_service = VisaService(db)
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+
+            # Try to extract destination from message: "visa MAD" or "visa espana"
+            import re
+            dest_match = re.search(r'visa\s+([A-Za-z]{2,3})', msg_lower)
+
+            if dest_match:
+                destination = dest_match.group(1).upper()
+                result = visa_service.check_visa_for_user(user_id, destination)
+                response = visa_service.format_visa_for_whatsapp(result)
+                buttons = visa_service.format_visa_buttons(result)
+                send_interactive_message(from_number, response, [b["title"] for b in buttons])
+            else:
+                response = "*Verificar requisitos de visa*\n\n"
+                response += "Escribe: visa [destino]\n\n"
+                response += "Ejemplos:\n"
+                response += "- visa MAD\n"
+                response += "- visa US\n"
+                response += "- visa JFK\n\n"
+                response += "_Usare tu pasaporte registrado para verificar._"
+                send_whatsapp_message(from_number, response)
+
+            return {"status": "ok"}
+
+        # ===== END NEW FEATURE COMMANDS =====
+
         # Regular AI processing
         session["messages"].append({"role": "user", "content": incoming_msg})
         session_manager.save_session(from_number, session)  # Save after adding message

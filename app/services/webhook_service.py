@@ -144,14 +144,55 @@ class WebhookService:
             metadata=metadata  # NEW: Store change details
         )
         
-        print(f"✅ Created notification with change details for user {trip.user_id}")
-        
+        print(f"Created notification with change details for user {trip.user_id}")
+
+        # NEW: Send WhatsApp push notification
+        self._send_flight_change_whatsapp(trip.user_id, order_id, metadata)
+
         return {
             "order_id": order_id,
             "notification_id": notification.id,
             "user_id": trip.user_id,
             "changes": changes
         }
+
+    def _send_flight_change_whatsapp(self, user_id: str, order_id: str, change_details: dict) -> None:
+        """Send WhatsApp notification for flight change"""
+        try:
+            from app.models.models import Profile
+            from app.services.push_notification_service import PushNotificationService
+            import asyncio
+
+            # Get user's phone number
+            profile = self.db.query(Profile).filter(Profile.user_id == user_id).first()
+
+            if not profile or not profile.phone_number:
+                print(f"No phone number found for user {user_id}")
+                return
+
+            push_service = PushNotificationService()
+
+            # Run async function in sync context
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(
+                    push_service.send_flight_change_alert(
+                        phone_number=profile.phone_number,
+                        pnr=order_id,
+                        change_type=change_details.get("change_type", "schedule_change"),
+                        details={
+                            "new_departure_time": change_details.get("new_flight", {}).get("departure_time"),
+                            "new_arrival_time": change_details.get("new_flight", {}).get("arrival_time")
+                        }
+                    )
+                )
+                print(f"WhatsApp notification sent to {profile.phone_number}")
+            finally:
+                loop.close()
+
+        except Exception as e:
+            print(f"Error sending WhatsApp notification: {e}")
     
     def handle_order_cancelled(self, event_data: dict) -> dict:
         """
@@ -198,18 +239,52 @@ class WebhookService:
         notification = self.create_notification(
             user_id=trip.user_id,
             type="cancellation",
-            title="🚫 Flight Cancelled",
-            message=f"Your flight {trip.booking_reference} has been cancelled. " + 
+            title="Flight Cancelled",
+            message=f"Your flight {trip.booking_reference} has been cancelled. " +
                    (f"A credit of ${refund_amount} has been added to your account." if credit_id else ""),
             action_required=False,
             related_order_id=order_id
         )
-        
+
+        # Send WhatsApp push notification
+        self._send_cancellation_whatsapp(trip.user_id, trip.booking_reference, refund_amount, credit_id)
+
         return {
             "order_id": order_id,
             "credit_id": credit_id,
             "notification_id": notification.id
         }
+
+    def _send_cancellation_whatsapp(self, user_id: str, pnr: str, refund_amount: float, credit_id: str) -> None:
+        """Send WhatsApp notification for flight cancellation"""
+        try:
+            from app.models.models import Profile
+            from app.services.push_notification_service import PushNotificationService
+            import asyncio
+
+            profile = self.db.query(Profile).filter(Profile.user_id == user_id).first()
+
+            if not profile or not profile.phone_number:
+                return
+
+            message = f"*Flight Cancelled*\n\nYour flight {pnr} has been cancelled."
+            if refund_amount and credit_id:
+                message += f"\n\nA credit of ${refund_amount:.2f} has been added to your account."
+            message += "\n\nReply 'help' for assistance."
+
+            push_service = PushNotificationService()
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(
+                    push_service.send_message(profile.phone_number, message)
+                )
+            finally:
+                loop.close()
+
+        except Exception as e:
+            print(f"Error sending cancellation WhatsApp: {e}")
     
     def handle_order_changed(self, event_data: dict) -> dict:
         """
@@ -287,7 +362,7 @@ class WebhookService:
             read=0,
             action_required=1 if action_required else 0,
             related_order_id=related_order_id,
-            metadata=json.dumps(metadata) if metadata else None,  # NEW: Store metadata as JSON
+            extra_data=json.dumps(metadata) if metadata else None,  # Store extra data as JSON
             created_at=datetime.utcnow().isoformat()
         )
         

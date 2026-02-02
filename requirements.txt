@@ -67,4 +67,5 @@ twilio
 redis
 anthropic>=0.39.0
 dateparser
+APScheduler>=3.10.0
 
