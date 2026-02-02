@@ -544,18 +544,22 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     
                     # Get flight details from dict
                     segments = flight_dict.get("segments", [])
-                    origin = segments[0].get("departure_iata", "N/A") if segments else "N/A"
-                    destination = segments[-1].get("arrival_iata", "N/A") if segments else "N/A"
                     airline = segments[0].get("carrier_code", "N/A") if segments else "N/A"
-                    
+
+                    # Build route summary for all segments
+                    route_parts = []
+                    for seg in segments:
+                        seg_origin = seg.get("departure_iata", "?")
+                        seg_dest = seg.get("arrival_iata", "?")
+                        route_parts.append(f"{seg_origin}→{seg_dest}")
+                    route_summary = " | ".join(route_parts) if route_parts else "N/A"
+
                     response_text = f"✅ *¡Vuelo reservado!*\n\n"
                     response_text += f"📝 PNR: {pnr}\n"
-                    response_text += f"✈️ {origin} → {destination}\n"
+                    response_text += f"✈️ {route_summary}\n"
                     response_text += f"🏢 {airline}\n"
                     response_text += f"💰 Total: ${price}\n\n"
-                    response_text += f"✨ *Reserva de prueba exitosa*\n"
-                    response_text += f"En producción se usaría Duffel API real\n\n"
-                    response_text += f"📧 Confirmación enviada al email"
+                    response_text += f"✨ *Reserva confirmada*"
                     
                     send_whatsapp_message(from_number, response_text)
                     session.pop("selected_flight", None)
