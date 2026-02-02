@@ -667,7 +667,37 @@ Que necesitas?"""
                             response_text += f"📊 *Duración total:* {total_hours}h {remaining_mins}m\n\n"
 
                     response_text += f"✨ *Reserva confirmada*"
-                    
+
+                    # SAVE TRIP TO DATABASE for mock bookings
+                    from app.models.models import Trip, TripStatusEnum, ProviderSourceEnum
+                    from datetime import datetime as dt
+
+                    # Extract departure info from first segment
+                    dep_city = segments[0].get("departure_iata") if segments else None
+                    arr_city = segments[-1].get("arrival_iata") if segments else None
+                    dep_date = None
+                    if segments and segments[0].get("departure_time"):
+                        try:
+                            dep_str = segments[0]["departure_time"]
+                            dep_date = dt.fromisoformat(dep_str.replace("Z", "+00:00")).date()
+                        except:
+                            pass
+
+                    trip = Trip(
+                        booking_reference=pnr,
+                        user_id=session["user_id"],
+                        provider_source=ProviderSourceEnum.DUFFEL,
+                        total_amount=float(price) if price else 0,
+                        status=TripStatusEnum.TICKETED,
+                        departure_city=dep_city,
+                        arrival_city=arr_city,
+                        departure_date=dep_date,
+                        confirmed_at=dt.utcnow().isoformat()
+                    )
+                    db.add(trip)
+                    db.commit()
+                    print(f"✅ Mock trip saved to DB: {pnr}")
+
                     send_whatsapp_message(from_number, response_text)
                     session.pop("selected_flight", None)
                     session.pop("pending_flights", None)

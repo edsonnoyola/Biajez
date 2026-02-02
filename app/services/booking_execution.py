@@ -343,8 +343,29 @@ class BookingOrchestrator:
             order_data = response.json()["data"]
             pnr = order_data['booking_reference']
             ticket_number = order_data['id']
-            
+
+            # Extract flight details from order
             from datetime import datetime
+            slices = order_data.get('slices', [])
+            departure_city = None
+            arrival_city = None
+            departure_date = None
+
+            if slices:
+                first_slice = slices[0]
+                segments = first_slice.get('segments', [])
+                if segments:
+                    first_segment = segments[0]
+                    last_segment = segments[-1]
+                    departure_city = first_segment.get('origin', {}).get('iata_code')
+                    arrival_city = last_segment.get('destination', {}).get('iata_code')
+                    dep_time = first_segment.get('departing_at', '')
+                    if dep_time:
+                        try:
+                            departure_date = datetime.fromisoformat(dep_time.replace('Z', '+00:00')).date()
+                        except:
+                            pass
+
             trip = Trip(
                 booking_reference=pnr,
                 user_id=profile.user_id,
@@ -352,7 +373,11 @@ class BookingOrchestrator:
                 total_amount=amount,
                 status=TripStatusEnum.TICKETED,
                 invoice_url="https://stripe.com/invoice/456",
-                confirmed_at=datetime.utcnow().isoformat()
+                confirmed_at=datetime.utcnow().isoformat(),
+                departure_city=departure_city,
+                arrival_city=arrival_city,
+                departure_date=departure_date,
+                duffel_order_id=ticket_number
             )
             self.db.add(trip)
             self.db.commit()
