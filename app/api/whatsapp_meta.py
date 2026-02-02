@@ -1190,7 +1190,11 @@ def format_for_whatsapp(text: str, session: dict) -> str:
         "MTY": "Monterrey",
         "NLU": "Felipe Ángeles",
         "TLC": "Toluca",
-        "BJX": "León/Bajío"
+        "BJX": "León/Bajío",
+        "HND": "Tokio (Haneda)",
+        "NRT": "Tokio (Narita)",
+        "CDG": "París (CDG)",
+        "ORY": "París (Orly)"
     }
     
     if session.get("pending_flights"):
@@ -1222,16 +1226,31 @@ def format_for_whatsapp(text: str, session: dict) -> str:
                     time_str = str(dep_time)[:5] if dep_time else "N/A"
                 
                 # Count stops
-                num_segments = len(segments)
-                is_roundtrip = num_segments > 1
-                stops = "Directo" if num_segments == 1 or num_segments == 2 else f"{num_segments-1} escalas"
+                # Smart Detection: Roundtrip vs Multi-city
+                # Roundtrip = Start Origin == End Destination
+                last_seg = segments[-1]
+                final_dest = last_seg.get("arrival_iata", "")
+                
+                is_round_trip = (origin == final_dest)
+                
+                flight_type = "Ida (Sencillo)"
+                if len(segments) > 1:
+                    if is_round_trip:
+                        flight_type = "Ida y vuelta"
+                    else:
+                        flight_type = "Multidestino"
                 
                 # Format flight info with airport names
                 flight_list += f"{i}. *${price}* - {airline}\n"
-                flight_list += f"   {origin_name}→{dest_name} | {time_str} | {stops}\n"
                 
-                if is_roundtrip and num_segments >= 2:
-                    flight_list += f"   {'Ida y vuelta' if num_segments == 2 else 'Múltiples tramos'}\n"
+                # Show route more clearly for multicity
+                if flight_type == "Multidestino":
+                     # Show first leg and last leg? Or just "Multidestino" label
+                     flight_list += f"   {origin_name}→...→{final_dest} | {time_str}\n" 
+                else:
+                     flight_list += f"   {origin_name}→{dest_name} | {time_str} | {stops}\n"
+                
+                flight_list += f"   {flight_type}\n"
                 
                 flight_list += "\n"
         
