@@ -1,6 +1,19 @@
 from dotenv import load_dotenv
 load_dotenv() # Load env vars before anything else
 
+import os
+# DEBUG: Print env vars status at startup
+print("=" * 50)
+print("🔧 ENVIRONMENT VARIABLES CHECK:")
+print(f"   DUFFEL_ACCESS_TOKEN: {'✅ SET' if os.getenv('DUFFEL_ACCESS_TOKEN') else '❌ NOT SET'}")
+print(f"   OPENAI_API_KEY: {'✅ SET' if os.getenv('OPENAI_API_KEY') else '❌ NOT SET'}")
+print(f"   WHATSAPP_ACCESS_TOKEN: {'✅ SET' if os.getenv('WHATSAPP_ACCESS_TOKEN') else '❌ NOT SET'}")
+print(f"   REDIS_URL: {'✅ SET' if os.getenv('REDIS_URL') else '❌ NOT SET'}")
+if os.getenv('DUFFEL_ACCESS_TOKEN'):
+    token = os.getenv('DUFFEL_ACCESS_TOKEN')
+    print(f"   DUFFEL token preview: {token[:25]}..." if len(token) > 25 else f"   DUFFEL token: {token}")
+print("=" * 50)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.models import models

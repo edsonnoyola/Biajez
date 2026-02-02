@@ -46,7 +46,13 @@ class FlightAggregator:
         
         # Initialize Duffel (Test or Live)
         # Using v2 as confirmed by debug script
-        self.duffel = Duffel(access_token=os.getenv("DUFFEL_ACCESS_TOKEN"), api_version="v2")
+        duffel_token = os.getenv("DUFFEL_ACCESS_TOKEN")
+        if not duffel_token:
+            print("⚠️ WARNING: DUFFEL_ACCESS_TOKEN not set!")
+            print(f"   Available env vars: {[k for k in os.environ.keys() if 'DUFFEL' in k.upper()]}")
+        else:
+            print(f"✅ Duffel token loaded: {duffel_token[:20]}...")
+        self.duffel = Duffel(access_token=duffel_token, api_version="v2")
 
     async def search_hybrid_flights(
         self, 
