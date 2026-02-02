@@ -217,38 +217,43 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         
         # ===== HELP COMMAND =====
         if incoming_msg.lower() in ["ayuda", "help", "que puedes hacer", "qué puedes hacer", "comandos", "menu", "menú"]:
-            help_text = """*Biatriz - Tu Asistente de Viajes*
+            help_text = """*Biatriz - Tu Asistente de Viajes* ✈️
 
-*RESERVAR*
-- "vuelo de MEX a MAD 15 marzo"
-- "hotel en Madrid del 15 al 18"
-- "reservar sin pagar" - Apartar 24h
+*BUSCAR Y RESERVAR*
+• vuelo MEX a MAD 15 marzo
+• hotel en Madrid del 15 al 18
+• reservar sin pagar _(apartar 24h)_
 
 *MIS VIAJES*
-- "itinerario" - Proximo viaje
-- "historial" - Viajes pasados
-- "cambiar vuelo" - Modificar fecha
-- "cancelar [PNR]" - Cancelar
-- "reembolso" - Cotizar cancelacion
+• itinerario _(próximo viaje)_
+• historial _(viajes pasados)_
+• cancelar [PNR]
+• reembolso
 
-*EXTRAS*
-- "equipaje" - Agregar maletas
-- "asientos" - Elegir asiento
-- "servicios" - Comidas, WiFi
-- "checkin" - Check-in
+*EXTRAS DE VUELO*
+• equipaje _(agregar maletas)_
+• asientos _(elegir lugar)_
+• servicios _(comidas, WiFi)_
+• checkin / auto checkin
 
-*PROGRAMAS*
-- "millas" - Viajero frecuente
-- "creditos" - Vouchers aerolínea
-- "alertas" - Alertas de precio
+*MILLAS Y ALERTAS*
+• millas _(ver programas)_
+• agregar millas AM 123456
+• eliminar millas AM
+• alertas _(ver alertas precio)_
+• crear alerta _(después de buscar)_
 
 *UTILIDADES*
-- "clima cancun" - Pronostico
-- "cambio USD" - Tipo de cambio
-- "estado vuelo AM123" - Rastrear
-- "visa US" - Requisitos
+• clima cancun
+• cambio USD
+• estado vuelo AM123
+• visa US _(requisitos)_
 
-Que necesitas?"""
+*MI CUENTA*
+• perfil _(ver preferencias)_
+• reset _(limpiar sesión)_
+
+_Escribe lo que necesitas en lenguaje natural_ 😊"""
             send_whatsapp_message(from_number, help_text)
             return {"status": "ok"}
         
