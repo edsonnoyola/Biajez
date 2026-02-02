@@ -267,13 +267,14 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     dep_time = seg.get("departure_time", "")
                     arr_time = seg.get("arrival_time", "")
                     seg_duration = seg.get("duration", "")
+                    seg_airline = seg.get("carrier_code", "N/A")
+                    seg_flight_num = seg.get("flight_number", "")
 
                     # Format departure
                     dep_str = "N/A"
                     if dep_time:
                         dep_str_raw = str(dep_time)
                         if len(dep_str_raw) >= 16 and "T" in dep_str_raw:
-                            # ISO format: 2026-02-10T06:58:00
                             dep_str = f"{dep_str_raw[8:10]}/{dep_str_raw[5:7]} {dep_str_raw[11:16]}"
                         elif hasattr(dep_time, 'strftime'):
                             dep_str = dep_time.strftime("%d/%m %H:%M")
@@ -295,11 +296,16 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     else:
                         label = f"Tramo {idx}"
 
+                    # Flight info line with airline and flight number
+                    flight_info = f"{seg_airline}"
+                    if seg_flight_num:
+                        flight_info += f" {seg_flight_num}"
+
                     response_text += f"*{label}:* {seg_origin} → {seg_dest}\n"
-                    response_text += f"   🛫 Salida: {dep_str}\n"
-                    response_text += f"   🛬 Llegada: {arr_str}\n"
+                    response_text += f"   ✈️ {flight_info} (Directo)\n"
+                    response_text += f"   🛫 {dep_str} → 🛬 {arr_str}\n"
                     if seg_duration:
-                        response_text += f"   ⏱️ {seg_duration}\n"
+                        response_text += f"   ⏱️ Duración: {seg_duration}\n"
                     response_text += "\n"
 
                 # Send with interactive buttons
@@ -1254,51 +1260,69 @@ def format_for_whatsapp(text: str, session: dict) -> str:
             price = flight.get("price", "N/A")
             segments = flight.get("segments", [])
             duration = flight.get("duration_total", "")
+            cabin = flight.get("cabin_class", "ECONOMY")
+            refundable = flight.get("refundable", False)
 
             if segments:
-                airline = segments[0].get("carrier_code", "N/A")
+                num_segments = len(segments)
                 origin = segments[0].get("departure_iata", "")
                 final_dest = segments[-1].get("arrival_iata", "")
 
-                # Parse departure time - handles both datetime objects and ISO strings
-                dep_time = segments[0].get("departure_time", "")
-                if hasattr(dep_time, 'strftime'):
-                    date_str = dep_time.strftime("%d/%m")
-                    time_str = dep_time.strftime("%H:%M")
-                elif dep_time and len(str(dep_time)) >= 16:
-                    # ISO format: 2026-02-10T06:58:00
-                    date_str = f"{str(dep_time)[8:10]}/{str(dep_time)[5:7]}"
-                    time_str = str(dep_time)[11:16]
-                else:
-                    date_str = "N/A"
-                    time_str = "N/A"
+                # Header with price and refundable status
+                refund_tag = "✅ Reembolsable" if refundable else ""
+                flight_list += f"━━━━━━━━━━━━━━━━━━━━\n"
+                flight_list += f"*{i}. ${price} USD* {refund_tag}\n"
 
-                # Determine flight type and stops
-                num_segments = len(segments)
-                is_round_trip = (origin == final_dest) and num_segments > 1
+                # Show each segment with full details
+                for seg_idx, seg in enumerate(segments):
+                    seg_airline = seg.get("carrier_code", "N/A")
+                    seg_flight_num = seg.get("flight_number", "")
+                    seg_origin = seg.get("departure_iata", "")
+                    seg_dest = seg.get("arrival_iata", "")
+                    seg_duration = seg.get("duration", "")
 
-                if num_segments == 1:
-                    flight_type = "✈️ Directo"
-                    route = f"{origin}→{final_dest}"
-                elif is_round_trip:
-                    mid_point = segments[0].get("arrival_iata", "")
-                    flight_type = "🔄 Ida y vuelta"
-                    route = f"{origin}→{mid_point}→{origin}"
-                else:
-                    # Multidestino - show all stops
-                    stops_list = [origin]
-                    for seg in segments:
-                        stops_list.append(seg.get("arrival_iata", ""))
-                    route = "→".join(stops_list)
-                    flight_type = f"🌍 Multidestino ({num_segments} tramos)"
+                    # Parse departure time
+                    dep_time = seg.get("departure_time", "")
+                    if hasattr(dep_time, 'strftime'):
+                        dep_str = dep_time.strftime("%d/%m %H:%M")
+                    elif dep_time and len(str(dep_time)) >= 16:
+                        dep_str = f"{str(dep_time)[8:10]}/{str(dep_time)[5:7]} {str(dep_time)[11:16]}"
+                    else:
+                        dep_str = "N/A"
 
-                # Build flight info
-                flight_list += f"{i}. *${price} USD* - {airline}\n"
-                flight_list += f"   📍 {route}\n"
-                flight_list += f"   📅 {date_str} | 🕐 {time_str}\n"
-                flight_list += f"   {flight_type}\n"
+                    # Parse arrival time
+                    arr_time = seg.get("arrival_time", "")
+                    if hasattr(arr_time, 'strftime'):
+                        arr_str = arr_time.strftime("%H:%M")
+                    elif arr_time and len(str(arr_time)) >= 16:
+                        arr_str = str(arr_time)[11:16]
+                    else:
+                        arr_str = "N/A"
+
+                    # Flight identifier (airline + flight number)
+                    flight_id = f"{seg_airline}"
+                    if seg_flight_num:
+                        flight_id += f" {seg_flight_num}"
+
+                    # Segment label
+                    if num_segments == 1:
+                        seg_label = "✈️ DIRECTO"
+                    elif num_segments == 2 and seg_idx == 0:
+                        seg_label = "🛫 IDA"
+                    elif num_segments == 2 and seg_idx == 1:
+                        seg_label = "🛬 VUELTA"
+                    else:
+                        seg_label = f"Tramo {seg_idx + 1}"
+
+                    flight_list += f"\n   {seg_label}: {seg_origin}→{seg_dest}\n"
+                    flight_list += f"   ✈️ {flight_id} | {dep_str}→{arr_str}\n"
+                    if seg_duration:
+                        flight_list += f"   ⏱️ {seg_duration}\n"
+
+                # Total duration if available
                 if duration:
-                    flight_list += f"   ⏱️ {duration}\n"
+                    flight_list += f"\n   📊 Duración total: {duration}\n"
+
                 flight_list += "\n"
 
         text += flight_list
