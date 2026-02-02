@@ -20,12 +20,13 @@ def parse_iso_duration(duration_str: str) -> str:
     if not duration_str:
         return ""
 
-    # Already readable format
-    if 'h' in duration_str.lower() and 'PT' not in duration_str:
+    # Already readable format (has 'h' but not ISO format)
+    if 'h' in duration_str.lower() and 'P' not in duration_str:
         return duration_str
 
-    # Parse ISO 8601 duration: PT1D2H30M or PT15H39M
-    match = re.match(r'P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?', duration_str)
+    # Parse ISO 8601 duration: P1DT12H30M or PT15H39M
+    # Format: P[days]D[T[hours]H[minutes]M]
+    match = re.match(r'P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?', duration_str)
     if match:
         days = int(match.group(1) or 0)
         hours = int(match.group(2) or 0)
