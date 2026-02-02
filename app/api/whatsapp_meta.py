@@ -1150,7 +1150,10 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                         checkout=checkout,
                         amenities=arguments.get("amenities"),
                         room_type=arguments.get("room_type"),
-                        landmark=arguments.get("landmark")
+                        landmark=arguments.get("landmark"),
+                        hotel_chain=arguments.get("hotel_chain"),
+                        star_rating=arguments.get("star_rating"),
+                        location=arguments.get("location")
                     )
                     
                     # Store hotels in session for booking
@@ -1498,22 +1501,29 @@ def format_for_whatsapp(text: str, session: dict) -> str:
         for i, hotel in enumerate(hotels, 1):
             name = hotel.get("name", "N/A")
             rating = hotel.get("rating", "N/A")
+            chain = hotel.get("chain", "")
             price = hotel.get("price", {})
             total = price.get("total", "N/A") if isinstance(price, dict) else "N/A"
             currency = price.get("currency", "USD") if isinstance(price, dict) else "USD"
-            
-            # Get amenities
+
+            # Get amenities (show top 4)
             amenities = hotel.get("amenities", [])
-            amenities_str = ", ".join(amenities[:3]) if amenities else "WiFi"
-            
+            amenities_str = ", ".join(amenities[:4]) if amenities else "WiFi"
+
             # Get location
             address = hotel.get("address", {})
             city_name = address.get("cityName", "") if isinstance(address, dict) else ""
             location = hotel.get("location_description", city_name)
-            
+
+            # Star rating emoji
+            stars = "⭐" * int(rating) if rating.isdigit() else "⭐⭐⭐⭐"
+
             # Format hotel info
-            hotel_list += f"{i}. *{name}*\n"
-            hotel_list += f"   ⭐ {rating} estrellas\n"
+            hotel_list += f"━━━━━━━━━━━━━━━━━━━━\n"
+            hotel_list += f"*{i}. {name}*\n"
+            if chain:
+                hotel_list += f"   🏢 Cadena: {chain}\n"
+            hotel_list += f"   {stars} ({rating} estrellas)\n"
             hotel_list += f"   💰 ${total} {currency}/noche\n"
             hotel_list += f"   📍 {location}\n"
             hotel_list += f"   ✨ {amenities_str}\n\n"

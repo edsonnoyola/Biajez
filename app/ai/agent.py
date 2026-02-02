@@ -45,10 +45,29 @@ AIRLINE CODES (extract from natural language):
 
 HOTEL SEARCH:
 • Only search when user EXPLICITLY requests hotels
-• Triggers: "busca hotel", "necesito hotel", "dónde me hospedo"
+• Triggers: "busca hotel", "necesito hotel", "dónde me hospedo", "hotel en [ciudad]"
 • Required: city, check-in date, check-out date
-• Optional: amenities, room type, landmark proximity
-• Filter: Only 4+ star hotels in safe business districts
+
+HOTEL CHAINS (extract from natural language):
+• Marriott, JW Marriott, Ritz-Carlton, W Hotels → "Marriott"
+• Hilton, DoubleTree, Conrad, Waldorf → "Hilton"
+• Hyatt, Grand Hyatt, Park Hyatt, Andaz → "Hyatt"
+• IHG, InterContinental, Crowne Plaza, Holiday Inn → "IHG"
+• Four Seasons → "Four Seasons"
+• Westin, Sheraton, St. Regis → "Marriott" (Bonvoy)
+• Accor, Sofitel, Novotel, Fairmont → "Accor"
+
+LOCATION PREFERENCES:
+• "centro", "downtown", "city center" → location="centro"
+• "cerca del aeropuerto", "near airport" → location="airport"
+• "cerca de [lugar]" → location="near [lugar]"
+• "zona turística", "tourist area" → location="tourist"
+• "playa", "beach" → location="beach"
+
+STAR RATING:
+• "5 estrellas", "luxury", "lujo" → star_rating="5"
+• "4 estrellas", "good", "bueno" → star_rating="4"
+• Default: 4+ star hotels
 
 RULES:
 1. ALWAYS inject user's Loyalty Numbers and Global Entry ID from context
@@ -134,16 +153,18 @@ RULES:
                 "type": "function",
                 "function": {
                     "name": "google_hotels",
-                    "description": "Search for hotels meeting the 4-star+ criteria.",
+                    "description": "Search for hotels. Extract chain preference, location, and star rating from user request.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "city": {"type": "string", "description": "City name or IATA code"},
                             "checkin": {"type": "string", "description": "Check-in date YYYY-MM-DD"},
                             "checkout": {"type": "string", "description": "Check-out date YYYY-MM-DD"},
-                            "amenities": {"type": "string", "description": "Comma-separated amenities (e.g. WIFI, GYM, BREAKFAST, POOL)"},
-                            "room_type": {"type": "string", "description": "Room type (e.g. DOUBLE QUEEN, SINGLE, SUITE)"},
-                            "landmark": {"type": "string", "description": "Near specific landmark (e.g. Prado Museum, Airport, City Center)"}
+                            "hotel_chain": {"type": "string", "description": "Hotel chain preference (e.g. Marriott, Hilton, Hyatt, IHG, Westin, Sheraton, Four Seasons, Ritz-Carlton)"},
+                            "star_rating": {"type": "string", "enum": ["3", "4", "5", "4+", "5"], "description": "Minimum star rating (default 4+)"},
+                            "location": {"type": "string", "description": "Location preference: 'centro', 'downtown', 'airport', 'beach', or near landmark (e.g. 'cerca del Zócalo', 'near Times Square')"},
+                            "amenities": {"type": "string", "description": "Comma-separated amenities (e.g. WIFI, GYM, BREAKFAST, POOL, SPA)"},
+                            "room_type": {"type": "string", "description": "Room type (e.g. KING, DOUBLE, SUITE)"}
                         },
                         "required": ["city", "checkin", "checkout"]
                     }

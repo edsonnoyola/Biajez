@@ -12,7 +12,7 @@ class HotelEngine:
         )
         stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
-    def search_hotels(self, city: str, checkin: str, checkout: str, amenities: str = None, room_type: str = None, landmark: str = None, preferred_chains: str = None):
+    def search_hotels(self, city: str, checkin: str, checkout: str, amenities: str = None, room_type: str = None, landmark: str = None, preferred_chains: str = None, hotel_chain: str = None, star_rating: str = None, location: str = None):
         try:
             # 1. Get City Code (IATA) - Simplified
             city_code = city 
@@ -80,81 +80,210 @@ class HotelEngine:
         except Exception as e:
             print(f"Amadeus Hotel Search Error (Using Enhanced Sim): {e}")
             
-            # ENHANCED SIMULATION (Dynamic Location)
+            # ENHANCED SIMULATION (Dynamic Location with Hotel Chains)
             city_name = city or "Madrid"
             country_code = "ES" if "Madrid" in city_name else "US"
             currency = "EUR" if country_code == "ES" else "USD"
-            
+
+            # Comprehensive hotel list with chains
             base_hotels = [
+                # Marriott Family
+                {
+                    "name": f"JW Marriott {city_name}",
+                    "hotelId": f"MOCK_JWM_{city_name[:3].upper()}",
+                    "chain": "Marriott",
+                    "rating": "5",
+                    "address": {"cityName": city_name, "countryCode": country_code},
+                    "price": {"total": "420.00", "currency": currency},
+                    "amenities": ["WIFI", "GYM", "SPA", "POOL", "BREAKFAST"],
+                    "location_description": "Centro, Zona Financiera"
+                },
                 {
                     "name": f"Ritz-Carlton {city_name}",
                     "hotelId": f"MOCK_RC_{city_name[:3].upper()}",
+                    "chain": "Marriott",
                     "rating": "5",
                     "address": {"cityName": city_name, "countryCode": country_code},
-                    "price": {"total": "450.00", "currency": currency},
-                    "amenities": ["WIFI", "GYM", "SPA", "POOL"],
-                    "location_description": "City Center, Luxury District"
+                    "price": {"total": "650.00", "currency": currency},
+                    "amenities": ["WIFI", "GYM", "SPA", "POOL", "BREAKFAST", "CONCIERGE"],
+                    "location_description": "Centro, Distrito de Lujo"
                 },
                 {
-                    "name": f"Four Seasons {city_name}",
-                    "hotelId": f"MOCK_FS_{city_name[:3].upper()}",
-                    "rating": "5",
-                    "address": {"cityName": city_name, "countryCode": country_code},
-                    "price": {"total": "620.00", "currency": currency},
-                    "amenities": ["WIFI", "GYM", "BREAKFAST", "SPA"],
-                    "location_description": "Downtown, Near Landmarks"
-                },
-                {
-                    "name": f"The Westin {city_name}",
-                    "hotelId": f"MOCK_WP_{city_name[:3].upper()}",
+                    "name": f"Westin {city_name}",
+                    "hotelId": f"MOCK_WES_{city_name[:3].upper()}",
+                    "chain": "Marriott",
                     "rating": "5",
                     "address": {"cityName": city_name, "countryCode": country_code},
                     "price": {"total": "380.00", "currency": currency},
-                    "amenities": ["WIFI", "BREAKFAST"],
-                    "location_description": "Business District"
+                    "amenities": ["WIFI", "GYM", "BREAKFAST"],
+                    "location_description": "Downtown, Zona Turística"
+                },
+                # Hilton Family
+                {
+                    "name": f"Hilton {city_name}",
+                    "hotelId": f"MOCK_HIL_{city_name[:3].upper()}",
+                    "chain": "Hilton",
+                    "rating": "5",
+                    "address": {"cityName": city_name, "countryCode": country_code},
+                    "price": {"total": "350.00", "currency": currency},
+                    "amenities": ["WIFI", "GYM", "POOL", "BREAKFAST"],
+                    "location_description": "Centro, Near Landmarks"
                 },
                 {
-                    "name": f"Airport Suites {city_name}",
-                    "hotelId": f"MOCK_AS_{city_name[:3].upper()}",
+                    "name": f"Conrad {city_name}",
+                    "hotelId": f"MOCK_CON_{city_name[:3].upper()}",
+                    "chain": "Hilton",
+                    "rating": "5",
+                    "address": {"cityName": city_name, "countryCode": country_code},
+                    "price": {"total": "520.00", "currency": currency},
+                    "amenities": ["WIFI", "GYM", "SPA", "POOL", "BREAKFAST"],
+                    "location_description": "Centro, Luxury District"
+                },
+                # Hyatt Family
+                {
+                    "name": f"Grand Hyatt {city_name}",
+                    "hotelId": f"MOCK_GH_{city_name[:3].upper()}",
+                    "chain": "Hyatt",
+                    "rating": "5",
+                    "address": {"cityName": city_name, "countryCode": country_code},
+                    "price": {"total": "400.00", "currency": currency},
+                    "amenities": ["WIFI", "GYM", "SPA", "POOL"],
+                    "location_description": "Centro, Business District"
+                },
+                {
+                    "name": f"Park Hyatt {city_name}",
+                    "hotelId": f"MOCK_PH_{city_name[:3].upper()}",
+                    "chain": "Hyatt",
+                    "rating": "5",
+                    "address": {"cityName": city_name, "countryCode": country_code},
+                    "price": {"total": "580.00", "currency": currency},
+                    "amenities": ["WIFI", "GYM", "SPA", "POOL", "BREAKFAST"],
+                    "location_description": "Centro, Zona Exclusiva"
+                },
+                # Four Seasons
+                {
+                    "name": f"Four Seasons {city_name}",
+                    "hotelId": f"MOCK_FS_{city_name[:3].upper()}",
+                    "chain": "Four Seasons",
+                    "rating": "5",
+                    "address": {"cityName": city_name, "countryCode": country_code},
+                    "price": {"total": "720.00", "currency": currency},
+                    "amenities": ["WIFI", "GYM", "SPA", "POOL", "BREAKFAST", "CONCIERGE"],
+                    "location_description": "Centro, Near Tourist Attractions"
+                },
+                # IHG Family
+                {
+                    "name": f"InterContinental {city_name}",
+                    "hotelId": f"MOCK_IC_{city_name[:3].upper()}",
+                    "chain": "IHG",
+                    "rating": "5",
+                    "address": {"cityName": city_name, "countryCode": country_code},
+                    "price": {"total": "320.00", "currency": currency},
+                    "amenities": ["WIFI", "GYM", "POOL", "BREAKFAST"],
+                    "location_description": "Centro, Zona Comercial"
+                },
+                {
+                    "name": f"Crowne Plaza {city_name}",
+                    "hotelId": f"MOCK_CP_{city_name[:3].upper()}",
+                    "chain": "IHG",
+                    "rating": "4",
+                    "address": {"cityName": city_name, "countryCode": country_code},
+                    "price": {"total": "220.00", "currency": currency},
+                    "amenities": ["WIFI", "GYM", "BREAKFAST"],
+                    "location_description": "Business District"
+                },
+                # Airport Hotels
+                {
+                    "name": f"Hilton Airport {city_name}",
+                    "hotelId": f"MOCK_HA_{city_name[:3].upper()}",
+                    "chain": "Hilton",
                     "rating": "4",
                     "address": {"cityName": city_name, "countryCode": country_code},
                     "price": {"total": "180.00", "currency": currency},
-                    "amenities": ["WIFI", "SHUTTLE"],
-                    "location_description": "Near Airport"
+                    "amenities": ["WIFI", "SHUTTLE", "BREAKFAST"],
+                    "location_description": "Near Airport, Shuttle Service"
+                },
+                {
+                    "name": f"Marriott Airport {city_name}",
+                    "hotelId": f"MOCK_MA_{city_name[:3].upper()}",
+                    "chain": "Marriott",
+                    "rating": "4",
+                    "address": {"cityName": city_name, "countryCode": country_code},
+                    "price": {"total": "190.00", "currency": currency},
+                    "amenities": ["WIFI", "SHUTTLE", "GYM"],
+                    "location_description": "Airport, Free Shuttle"
                 }
             ]
             
             filtered_hotels = []
             for h in base_hotels:
                 score = 0
-                # Filter by Landmark
-                if landmark:
-                    if landmark.lower() in h["location_description"].lower():
-                        score += 10
+                include = True
+
+                # Filter by Hotel Chain (priority filter)
+                if hotel_chain:
+                    chain_lower = hotel_chain.lower()
+                    hotel_chain_lower = h.get("chain", "").lower()
+                    if chain_lower in hotel_chain_lower or chain_lower in h["name"].lower():
+                        score += 50  # Strong preference
                     else:
-                        continue # Strict filtering for demo
-                
+                        include = False  # Exclude if chain doesn't match
+
+                # Filter by Star Rating
+                if star_rating and include:
+                    hotel_rating = int(h.get("rating", "4"))
+                    min_rating = int(star_rating.replace("+", ""))
+                    if hotel_rating < min_rating:
+                        include = False
+
+                # Filter by Location
+                if location and include:
+                    loc_lower = location.lower()
+                    loc_desc = h["location_description"].lower()
+                    if any(term in loc_desc for term in [loc_lower, "centro", "downtown"]) or loc_lower in loc_desc:
+                        score += 20
+                    elif "airport" in loc_lower and "airport" in loc_desc:
+                        score += 20
+                    elif "near" in loc_lower or "cerca" in loc_lower:
+                        # Generic location preference, don't exclude
+                        score += 5
+
+                # Filter by Landmark (legacy support)
+                if landmark and include:
+                    if landmark.lower() in h["location_description"].lower():
+                        score += 15
+
                 # Filter by Amenities
-                if amenities:
+                if amenities and include:
                     req_amenities = [a.strip().upper() for a in amenities.split(",")]
                     for req in req_amenities:
                         if req in h["amenities"]:
                             score += 5
-                
-                # Filter by Room Type (Mock logic: all hotels have all rooms, just add description)
+
+                # Room Type
                 if room_type:
-                    h["room_description"] = room_type # Inject requested room type
+                    h["room_description"] = room_type
                 else:
                     h["room_description"] = "Standard Room"
-                    
-                filtered_hotels.append(h)
-            
-            # If strict filtering returns nothing, return all with a note (or top 3)
+
+                if include:
+                    h["_score"] = score
+                    filtered_hotels.append(h)
+
+            # Sort by score (highest first)
+            filtered_hotels.sort(key=lambda x: x.get("_score", 0), reverse=True)
+
+            # Remove score from output
+            for h in filtered_hotels:
+                h.pop("_score", None)
+
+            # If no hotels match, return top hotels by rating
             if not filtered_hotels:
-                print("DEBUG: No hotels matched strict filters. Returning all.")
-                return base_hotels[:3]
-                
-            return filtered_hotels
+                print(f"DEBUG: No hotels matched filters. Returning top options.")
+                base_hotels.sort(key=lambda x: int(x.get("rating", "4")), reverse=True)
+                return base_hotels[:5]
+
+            return filtered_hotels[:5]  # Return top 5
 
     def reserve_hotel_with_vcc(self, offer_id: str, amount: float, guest_name: str):
         # 1. Create Virtual Card (VCC) via Stripe Issuing
