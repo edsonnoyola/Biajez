@@ -69,3 +69,8 @@ verify_*.py
 check_*.py
 force_*.py
 create_checkpoint.sh
+
+# Sensitive files
+token.txt
+*.token
+clear_session_debug.py
