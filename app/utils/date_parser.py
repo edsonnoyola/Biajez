@@ -3,10 +3,17 @@ Intelligent Date Parser for Natural Language
 Extracts dates from user queries with high accuracy
 """
 
-import dateparser
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple
 import re
+
+# Try to import dateparser, use fallback if not available
+try:
+    import dateparser
+    DATEPARSER_AVAILABLE = True
+except ImportError:
+    DATEPARSER_AVAILABLE = False
+    print("WARNING: dateparser not installed. Using basic date parsing.")
 
 class SmartDateParser:
     """
@@ -44,24 +51,32 @@ class SmartDateParser:
                     
                     # Pattern 1: "Feb 10 to Feb 15"
                     if len(groups) == 2 and all(g for g in groups):
-                        checkin = dateparser.parse(groups[0], settings={'PREFER_DATES_FROM': 'future'})
-                        checkout = dateparser.parse(groups[1], settings={'PREFER_DATES_FROM': 'future'})
-                        
+                        if DATEPARSER_AVAILABLE:
+                            checkin = dateparser.parse(groups[0], settings={'PREFER_DATES_FROM': 'future'})
+                            checkout = dateparser.parse(groups[1], settings={'PREFER_DATES_FROM': 'future'})
+                        else:
+                            checkin = SmartDateParser._basic_parse(groups[0])
+                            checkout = SmartDateParser._basic_parse(groups[1])
+
                         if checkin and checkout:
                             return (
                                 checkin.strftime('%Y-%m-%d'),
                                 checkout.strftime('%Y-%m-%d')
                             )
-                    
+
                     # Pattern 2: "del 10 al 15 de febrero"
                     elif len(groups) == 3:
                         day1, day2, month = groups
                         month = month or SmartDateParser._extract_month(text)
-                        
+
                         if month:
-                            checkin = dateparser.parse(f"{month} {day1}", settings={'PREFER_DATES_FROM': 'future'})
-                            checkout = dateparser.parse(f"{month} {day2}", settings={'PREFER_DATES_FROM': 'future'})
-                            
+                            if DATEPARSER_AVAILABLE:
+                                checkin = dateparser.parse(f"{month} {day1}", settings={'PREFER_DATES_FROM': 'future'})
+                                checkout = dateparser.parse(f"{month} {day2}", settings={'PREFER_DATES_FROM': 'future'})
+                            else:
+                                checkin = SmartDateParser._basic_parse(f"{month} {day1}")
+                                checkout = SmartDateParser._basic_parse(f"{month} {day2}")
+
                             if checkin and checkout:
                                 return (
                                     checkin.strftime('%Y-%m-%d'),
@@ -82,11 +97,53 @@ class SmartDateParser:
                      'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
         months_en = ['january', 'february', 'march', 'april', 'may', 'june',
                      'july', 'august', 'september', 'october', 'november', 'december']
-        
+
         text_lower = text.lower()
         for month in months_es + months_en:
             if month in text_lower:
                 return month
+        return None
+
+    @staticmethod
+    def _basic_parse(text: str) -> Optional[datetime]:
+        """Basic date parser without dateparser library"""
+        months_map = {
+            'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4, 'mayo': 5, 'junio': 6,
+            'julio': 7, 'agosto': 8, 'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12,
+            'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
+            'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12,
+            'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'jun': 6,
+            'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+        }
+
+        text_lower = text.lower().strip()
+        today = datetime.now()
+        year = today.year
+
+        # Try to extract month and day
+        month_num = None
+        day_num = None
+
+        for month_name, month_val in months_map.items():
+            if month_name in text_lower:
+                month_num = month_val
+                break
+
+        # Find day number
+        day_match = re.search(r'\b(\d{1,2})\b', text_lower)
+        if day_match:
+            day_num = int(day_match.group(1))
+
+        if month_num and day_num:
+            try:
+                result = datetime(year, month_num, day_num)
+                # If date is in the past, assume next year
+                if result < today:
+                    result = datetime(year + 1, month_num, day_num)
+                return result
+            except ValueError:
+                pass
+
         return None
     
     @staticmethod
@@ -100,12 +157,15 @@ class SmartDateParser:
             r'\w+\s+\d{1,2},?\s*\d{4}',        # February 10, 2026
             r'\d{1,2}\s+\w+\s+\d{4}',          # 10 February 2026
         ]
-        
+
         found_dates = []
         for pattern in date_patterns:
             matches = re.findall(pattern, text)
             for match in matches:
-                parsed = dateparser.parse(match, settings={'PREFER_DATES_FROM': 'future'})
+                if DATEPARSER_AVAILABLE:
+                    parsed = dateparser.parse(match, settings={'PREFER_DATES_FROM': 'future'})
+                else:
+                    parsed = SmartDateParser._basic_parse(match)
                 if parsed:
                     found_dates.append(parsed)
         
@@ -138,14 +198,17 @@ class SmartDateParser:
     def parse_single_date(text: str) -> Optional[str]:
         """
         Parse a single date from text
-        
+
         Args:
             text: User query
-            
+
         Returns:
             Date in YYYY-MM-DD format or None
         """
-        parsed = dateparser.parse(text, settings={'PREFER_DATES_FROM': 'future'})
+        if DATEPARSER_AVAILABLE:
+            parsed = dateparser.parse(text, settings={'PREFER_DATES_FROM': 'future'})
+        else:
+            parsed = SmartDateParser._basic_parse(text)
         if parsed:
             return parsed.strftime('%Y-%m-%d')
         return None
