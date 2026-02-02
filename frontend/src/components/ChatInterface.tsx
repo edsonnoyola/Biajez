@@ -30,7 +30,7 @@ export const ChatInterface: React.FC = () => {
 
 
     const [messages, setMessages] = useState<Message[]>([
-        { role: 'assistant', content: "Hello! I'm Antigravity. Where would you like to go?" }
+        { role: 'assistant', content: "Hola! Soy Biatriz, tu asistente de viajes. ¿A dónde te gustaría ir?" }
     ]);
     const [input, setInput] = useState('');
     const [orbState, setOrbState] = useState<OrbState>('idle');

@@ -19,7 +19,7 @@ function App() {
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
                             <Rocket className="text-white" size={24} />
                         </div>
-                        <h1 className="text-2xl font-bold tracking-tight">Antigravity</h1>
+                        <h1 className="text-2xl font-bold tracking-tight">Biatriz</h1>
                     </div>
                 </header>
 
