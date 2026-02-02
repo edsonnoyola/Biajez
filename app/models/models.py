@@ -69,6 +69,7 @@ class Profile(Base):
     passport_number = Column(String, nullable=False) # Encrypted in application layer
     passport_expiry = Column(Date, nullable=False)
     passport_country = Column(String(2), nullable=False)
+    nationality = Column(String(2), nullable=True)  # ISO country code, defaults to passport_country
     known_traveler_number = Column(String, nullable=True)
     redress_number = Column(String, nullable=True)
     seat_preference = Column(String, default="ANY") # WINDOW, AISLE, MIDDLE, ANY

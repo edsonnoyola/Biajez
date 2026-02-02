@@ -263,6 +263,28 @@ class BookingOrchestrator:
                 "phone_number": phone,
                 "id": passenger_id or f"pas_000{i}" # Use extracted ID or generate
             }
+
+            # Add identity documents for international flights (passport)
+            if profile.passport_number and profile.passport_expiry and profile.passport_country:
+                passenger["identity_documents"] = [{
+                    "type": "passport",
+                    "unique_identifier": profile.passport_number,
+                    "expires_on": profile.passport_expiry.isoformat(),
+                    "issuing_country_code": profile.passport_country
+                }]
+                print(f"DEBUG: Added passport for {profile.legal_first_name}: {profile.passport_country}")
+
+            # Add Known Traveler Number (Global Entry/TSA PreCheck) if available
+            if profile.known_traveler_number:
+                if "identity_documents" not in passenger:
+                    passenger["identity_documents"] = []
+                passenger["identity_documents"].append({
+                    "type": "known_traveler_number",
+                    "unique_identifier": profile.known_traveler_number,
+                    "issuing_country_code": "US"
+                })
+                print(f"DEBUG: Added KTN: {profile.known_traveler_number}")
+
             passengers_list.append(passenger)
         
         # NEW: Add loyalty program if user has one for this airline
