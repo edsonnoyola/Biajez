@@ -9,7 +9,7 @@ from app.services.whatsapp_redis import session_manager, rate_limiter
 import requests
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.services import profile_manager
 
 router = APIRouter()
@@ -729,8 +729,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         # Handle date response for hotel search (keep this for backwards compat)
         if session.get("pending_hotel_search") and msg_lower == "sugeridas":
             from app.services.duffel_stays import DuffelStaysEngine
-            from datetime import datetime, timedelta
-            
+            # datetime and timedelta imported at top of file
             city = session["pending_hotel_search"]["city"]
             checkin = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
             checkout = (datetime.now() + timedelta(days=9)).strftime("%Y-%m-%d")
