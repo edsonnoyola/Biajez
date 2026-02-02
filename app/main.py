@@ -48,6 +48,28 @@ def run_migrations():
         "ALTER TABLE trips ADD COLUMN IF NOT EXISTS boarding_pass_url VARCHAR;",
         "ALTER TABLE trips ADD COLUMN IF NOT EXISTS duffel_order_id VARCHAR;",
         "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS extra_data TEXT;",
+        # Price alerts table
+        """CREATE TABLE IF NOT EXISTS price_alerts (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR,
+            phone_number VARCHAR,
+            search_type VARCHAR,
+            origin VARCHAR,
+            destination VARCHAR,
+            departure_date VARCHAR,
+            return_date VARCHAR,
+            target_price FLOAT,
+            initial_price FLOAT,
+            lowest_price FLOAT,
+            current_price FLOAT,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_checked_at TIMESTAMP,
+            notified_at TIMESTAMP,
+            notification_count INTEGER DEFAULT 0,
+            extra_data TEXT
+        );""",
+        "CREATE INDEX IF NOT EXISTS idx_price_alerts_user ON price_alerts(user_id);",
     ]
     try:
         with engine.connect() as conn:

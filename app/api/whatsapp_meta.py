@@ -219,25 +219,27 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         if incoming_msg.lower() in ["ayuda", "help", "que puedes hacer", "qué puedes hacer", "comandos", "menu", "menú"]:
             help_text = """*Biatriz - Tu Asistente de Viajes*
 
-*VUELOS*
+*VUELOS Y HOTELES*
 - "vuelo de MEX a MAD el 15 marzo"
-- "vuelo redondo a NYC del 10 al 20"
-
-*HOTELES*
-- "hotel en Madrid del 15 al 18 marzo"
-- "hotel en Cancun"
+- "hotel en Madrid del 15 al 18"
 
 *MIS VIAJES*
-- "itinerario" - Ver tu proximo viaje
-- "historial" - Tus viajes pasados
+- "itinerario" - Tu proximo viaje
+- "historial" - Viajes pasados
 - "equipaje" - Agregar maletas
-- "checkin" - Recordatorio de check-in
+- "checkin" - Check-in
+- "asientos" - Elegir asiento
 
-*VISA*
-- "visa US" - Requisitos de visa
+*UTILIDADES*
+- "clima cancun" - Pronostico
+- "cambio miami" - Tipo de cambio
+- "estado vuelo AM123" - Rastrear vuelo
+- "alertas" - Alertas de precio
+- "visa US" - Requisitos visa
 
 *OTROS*
-- "reset" - Reiniciar sesion
+- "mi perfil" - Tus preferencias
+- "reset" - Reiniciar
 
 Que necesitas?"""
             send_whatsapp_message(from_number, help_text)
@@ -1196,6 +1198,152 @@ Que necesitas?"""
                 response += "_Usare tu pasaporte registrado para verificar._"
                 send_whatsapp_message(from_number, response)
 
+            return {"status": "ok"}
+
+        # CLIMA / WEATHER
+        if any(kw in msg_lower for kw in ['clima', 'weather', 'tiempo en', 'pronóstico']):
+            from app.services.weather_service import WeatherService
+            import asyncio
+
+            weather_service = WeatherService()
+
+            # Extract city from message
+            city_match = re.search(r'(?:clima|weather|tiempo en|pronóstico)\s+(?:en\s+)?([A-Za-záéíóúñÁÉÍÓÚÑ\s]+)', msg_lower)
+            city = city_match.group(1).strip() if city_match else None
+
+            # If no city, try to get from recent search or ask
+            if not city:
+                if session.get("pending_flights"):
+                    # Get destination from last flight search
+                    city = session["pending_flights"][0].get("arrival_iata", "")
+                elif session.get("pending_hotel_search"):
+                    city = session["pending_hotel_search"].get("city", "")
+
+            if city:
+                weather = await weather_service.get_weather(city)
+                response = weather_service.format_for_whatsapp(weather)
+            else:
+                response = "*Clima*\n\nEscribe: clima [ciudad]\n\nEjemplos:\n- clima cancun\n- clima madrid\n- clima miami"
+
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # TIPO DE CAMBIO / CURRENCY
+        if any(kw in msg_lower for kw in ['cambio', 'tipo de cambio', 'moneda', 'currency', 'dolar', 'euro']):
+            from app.services.currency_service import CurrencyService
+            import asyncio
+
+            currency_service = CurrencyService()
+
+            # Extract destination from message
+            dest_match = re.search(r'(?:cambio|moneda|currency)\s+(?:en|para|a)?\s*([A-Za-záéíóúñ\s]+)', msg_lower)
+            destination = dest_match.group(1).strip() if dest_match else None
+
+            # Default currencies
+            from_curr = "USD"
+            to_curr = "MXN"
+
+            if destination:
+                to_curr = currency_service.get_currency_for_destination(destination)
+            elif session.get("pending_flights"):
+                # Get destination currency from flight search
+                dest = session["pending_flights"][0].get("arrival_iata", "")
+                to_curr = currency_service.get_currency_for_destination(dest)
+                destination = dest
+
+            exchange = await currency_service.get_exchange_rate(from_curr, to_curr)
+            response = currency_service.format_for_whatsapp(exchange, destination)
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # ESTADO DE VUELO / FLIGHT STATUS
+        if any(kw in msg_lower for kw in ['estado vuelo', 'flight status', 'rastrear vuelo', 'donde esta mi vuelo', 'estado del vuelo']):
+            from app.services.flight_status_service import FlightStatusService
+
+            status_service = FlightStatusService()
+
+            # Extract flight number from message
+            flight_match = re.search(r'([A-Za-z]{2}\d{1,4})', incoming_msg)
+            flight_number = flight_match.group(1) if flight_match else None
+
+            if not flight_number:
+                # Try to get from user's bookings
+                from app.services.itinerary_service import ItineraryService
+                itinerary_service = ItineraryService(db)
+                user_id = session.get("user_id", f"whatsapp_{from_number}")
+                upcoming = itinerary_service.get_upcoming_trip(user_id)
+                if upcoming and upcoming.get("success"):
+                    # Would need to store flight number in trip
+                    pass
+
+            if flight_number:
+                status = await status_service.get_flight_status(flight_number)
+                response = status_service.format_for_whatsapp(status)
+            else:
+                response = "*Estado de vuelo*\n\nEscribe: estado vuelo [número]\n\nEjemplos:\n- estado vuelo AM123\n- estado vuelo AA100"
+
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # ALERTAS DE PRECIO
+        if msg_lower.strip() in ['alertas', 'mis alertas', 'price alerts', 'alertas de precio']:
+            from app.services.price_alert_service import PriceAlertService
+
+            alert_service = PriceAlertService(db)
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+
+            alerts = alert_service.get_user_alerts(user_id)
+            response = alert_service.format_alerts_for_whatsapp(alerts)
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # CREAR ALERTA
+        if any(kw in msg_lower for kw in ['crear alerta', 'nueva alerta', 'avisame cuando baje', 'alerta de precio']):
+            from app.services.price_alert_service import PriceAlertService
+
+            alert_service = PriceAlertService(db)
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+
+            # Check if user has pending flights to create alert for
+            if session.get("pending_flights"):
+                flight = session["pending_flights"][0]
+                result = alert_service.create_alert(
+                    user_id=user_id,
+                    phone_number=from_number,
+                    search_type="flight",
+                    origin=flight.get("departure_iata"),
+                    destination=flight.get("arrival_iata"),
+                    departure_date=flight.get("departure_date", ""),
+                    current_price=float(flight.get("total_price", 0))
+                )
+                if result.get("success"):
+                    response = f"✅ Alerta creada!\n\nRuta: {flight.get('departure_iata')} → {flight.get('arrival_iata')}\nPrecio actual: ${flight.get('total_price')}\n\nTe avisaré cuando baje el precio."
+                else:
+                    response = f"❌ No pude crear la alerta: {result.get('error')}"
+            else:
+                response = "*Crear alerta de precio*\n\nPrimero busca un vuelo o hotel, luego di 'crear alerta' para recibir notificación cuando baje el precio."
+
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # ASIENTOS / SEAT SELECTION
+        if msg_lower.strip() in ['asientos', 'seleccionar asiento', 'mapa de asientos', 'seats']:
+            from app.services.seat_selection_service import SeatSelectionService
+
+            seat_service = SeatSelectionService()
+
+            # Check if user has selected a flight
+            if session.get("selected_flight"):
+                offer_id = session["selected_flight"].get("offer_id")
+                if offer_id:
+                    seat_map = await seat_service.get_seat_map(offer_id)
+                    response = seat_service.format_seat_map_for_whatsapp(seat_map)
+                else:
+                    response = "No pude obtener el mapa de asientos para este vuelo."
+            else:
+                response = "*Selección de asiento*\n\nPrimero selecciona un vuelo para ver los asientos disponibles."
+
+            send_whatsapp_message(from_number, response)
             return {"status": "ok"}
 
         # ===== END NEW FEATURE COMMANDS =====
