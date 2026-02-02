@@ -1351,15 +1351,18 @@ def format_for_whatsapp(text: str, session: dict) -> str:
                     if seg_flight_num:
                         flight_id += f" {seg_flight_num}"
 
+                    # Detect if round trip (origin == final destination) or multidestino
+                    is_round_trip = (origin == final_dest) and num_segments >= 2
+
                     # Segment label
                     if num_segments == 1:
                         seg_label = "✈️ DIRECTO"
-                    elif num_segments == 2 and seg_idx == 0:
+                    elif is_round_trip and seg_idx == 0:
                         seg_label = "🛫 IDA"
-                    elif num_segments == 2 and seg_idx == 1:
+                    elif is_round_trip and seg_idx == 1:
                         seg_label = "🛬 VUELTA"
                     else:
-                        seg_label = f"Tramo {seg_idx + 1}"
+                        seg_label = f"✈️ Tramo {seg_idx + 1}"
 
                     flight_list += f"\n   {seg_label}: {seg_origin}→{seg_dest}\n"
                     flight_list += f"   ✈️ {flight_id} | {dep_str}→{arr_str}\n"
@@ -1367,10 +1370,28 @@ def format_for_whatsapp(text: str, session: dict) -> str:
                         readable_seg_duration = parse_iso_duration(seg_duration)
                         flight_list += f"   ⏱️ {readable_seg_duration}\n"
 
-                # Total duration if available
-                if duration:
-                    readable_total_duration = parse_iso_duration(duration)
-                    flight_list += f"\n   📊 Duración total: {readable_total_duration}\n"
+                # Calculate total duration by summing segments
+                total_minutes = 0
+                for seg in segments:
+                    seg_dur = seg.get("duration", "")
+                    if seg_dur:
+                        # Parse ISO duration to minutes
+                        match = re.match(r'P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?', seg_dur)
+                        if match:
+                            days = int(match.group(1) or 0)
+                            hours = int(match.group(2) or 0)
+                            mins = int(match.group(3) or 0)
+                            total_minutes += days * 24 * 60 + hours * 60 + mins
+
+                if total_minutes > 0:
+                    total_hours = total_minutes // 60
+                    remaining_mins = total_minutes % 60
+                    if total_hours >= 24:
+                        days = total_hours // 24
+                        hours = total_hours % 24
+                        flight_list += f"\n   📊 Duración total: {days}d {hours}h {remaining_mins}m\n"
+                    else:
+                        flight_list += f"\n   📊 Duración total: {total_hours}h {remaining_mins}m\n"
 
                 flight_list += "\n"
 
