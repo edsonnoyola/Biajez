@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Send, Bot, User, Loader2, StopCircle, Bell } from 'lucide-react';
+import { Mic, Send, Bot, User, Loader2, StopCircle, Bell, Award, TrendingDown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import axios from 'axios';
 import API_URL from '../config/api';
@@ -15,6 +15,8 @@ import { HotelTicketCard } from './HotelTicketCard';
 import { MyTripsModal } from './MyTripsModal';
 import { NotificationsModal } from './NotificationsModal';
 import { ProfilesCRM } from './ProfilesCRM';
+import { LoyaltyModal } from './LoyaltyModal';
+import { PriceAlertsModal } from './PriceAlertsModal';
 
 interface Message {
     role: 'user' | 'assistant' | 'tool' | 'system';
@@ -43,6 +45,8 @@ export const ChatInterface: React.FC = () => {
     const [isTripsOpen, setIsTripsOpen] = useState(false);
     const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
     const [isCRMOpen, setIsCRMOpen] = useState(false);
+    const [isLoyaltyOpen, setIsLoyaltyOpen] = useState(false);
+    const [isPriceAlertsOpen, setIsPriceAlertsOpen] = useState(false);
     const [unreadCount] = useState(0);
     const [selectedFlight, setSelectedFlight] = useState<any>(null);
     const [selectedHotel, setSelectedHotel] = useState<any>(null);
@@ -339,6 +343,20 @@ export const ChatInterface: React.FC = () => {
                     )}
                 </button>
                 <button
+                    onClick={() => setIsPriceAlertsOpen(true)}
+                    className="w-10 h-10 rounded-full bg-card/50 backdrop-blur-md border border-orange-500/30 flex items-center justify-center text-orange-400 hover:text-white hover:bg-orange-500/20 transition-all shadow-lg"
+                    title="Alertas de Precio"
+                >
+                    <TrendingDown size={20} />
+                </button>
+                <button
+                    onClick={() => setIsLoyaltyOpen(true)}
+                    className="w-10 h-10 rounded-full bg-card/50 backdrop-blur-md border border-purple-500/30 flex items-center justify-center text-purple-400 hover:text-white hover:bg-purple-500/20 transition-all shadow-lg"
+                    title="Millas"
+                >
+                    <Award size={20} />
+                </button>
+                <button
                     onClick={() => setIsTripsOpen(true)}
                     className="px-4 h-10 rounded-full bg-card/50 backdrop-blur-md border border-white/10 flex items-center justify-center text-gray-300 hover:text-white hover:bg-white/10 transition-all shadow-lg text-sm font-medium"
                 >
@@ -489,6 +507,20 @@ export const ChatInterface: React.FC = () => {
             <ProfilesCRM
                 isOpen={isCRMOpen}
                 onClose={() => setIsCRMOpen(false)}
+            />
+
+            {/* LOYALTY PROGRAMS MODAL */}
+            <LoyaltyModal
+                isOpen={isLoyaltyOpen}
+                onClose={() => setIsLoyaltyOpen(false)}
+                userId="demo-user"
+            />
+
+            {/* PRICE ALERTS MODAL */}
+            <PriceAlertsModal
+                isOpen={isPriceAlertsOpen}
+                onClose={() => setIsPriceAlertsOpen(false)}
+                userId="demo-user"
             />
         </div>
     );
