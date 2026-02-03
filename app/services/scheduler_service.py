@@ -59,6 +59,15 @@ class SchedulerService:
             replace_existing=True
         )
 
+        # Price alerts checking - every 6 hours
+        self._scheduler.add_job(
+            self._check_price_alerts,
+            trigger=IntervalTrigger(hours=6),
+            id="check_price_alerts",
+            name="Check Price Alerts",
+            replace_existing=True
+        )
+
         # Refresh visa cache - daily at 3 AM
         self._scheduler.add_job(
             self._refresh_visa_cache,
@@ -76,6 +85,71 @@ class SchedulerService:
             name="Send Trip Reminders",
             replace_existing=True
         )
+
+    async def _check_price_alerts(self):
+        """Job: Check active price alerts and notify on price drops"""
+        print("Running job: check_price_alerts")
+
+        db = SessionLocal()
+        try:
+            from app.services.price_alert_service import PriceAlertService, PriceAlert
+            from app.services.flight_engine import FlightAggregator
+            from app.services.push_notification_service import PushNotificationService
+
+            alert_service = PriceAlertService(db)
+            flight_aggregator = FlightAggregator()
+            push_service = PushNotificationService()
+
+            # Get alerts that need checking
+            alerts = alert_service.get_active_alerts_for_checking()
+            print(f"Checking {len(alerts)} price alerts")
+
+            for alert in alerts:
+                try:
+                    # Search for current price
+                    if alert.search_type == "flight":
+                        results = await flight_aggregator.search_all_providers(
+                            origin=alert.origin,
+                            destination=alert.destination,
+                            date=alert.departure_date,
+                            passengers=1
+                        )
+
+                        if results:
+                            # Get lowest price
+                            new_price = min(float(r.price) for r in results)
+
+                            # Update alert
+                            update_result = alert_service.update_price(alert.id, new_price)
+
+                            # Notify if price dropped below target
+                            if update_result.get("should_notify") and alert.phone_number:
+                                drop_pct = update_result.get("drop_percentage", 0)
+                                message = (
+                                    f"*Bajo el precio!*\n\n"
+                                    f"{alert.origin} → {alert.destination}\n"
+                                    f"{alert.departure_date}\n\n"
+                                    f"Antes: ${alert.initial_price:.0f}\n"
+                                    f"Ahora: ${new_price:.0f}\n"
+                                    f"Ahorro: {drop_pct:.0f}%\n\n"
+                                    f"Escribe 'buscar vuelo {alert.origin} a {alert.destination}' para reservar"
+                                )
+                                await push_service.send_message(alert.phone_number, message)
+
+                                # Mark as notified
+                                alert.notified_at = datetime.utcnow()
+                                alert.notification_count += 1
+                                db.commit()
+
+                except Exception as e:
+                    print(f"Error checking alert {alert.id}: {e}")
+
+            print("Price alerts check complete")
+
+        except Exception as e:
+            print(f"Error in check_price_alerts job: {e}")
+        finally:
+            db.close()
 
     async def _process_auto_checkins(self):
         """Job: Process pending auto check-ins"""
