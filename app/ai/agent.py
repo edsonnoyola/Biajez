@@ -64,6 +64,15 @@ Convierte fechas relativas a formato YYYY-MM-DD basándote en la fecha actual ({
 - "fin de semana" → próximo sábado
 - "check in 17 check out 19" → checkin=día 17, checkout=día 19
 
+HORARIOS DE VUELO (time_of_day):
+Cuando el usuario mencione preferencia de horario, USA el parámetro time_of_day:
+- "en la mañana", "temprano", "por la mañana" → time_of_day="MORNING" (6am-12pm)
+- "en la tarde", "por la tarde" → time_of_day="AFTERNOON" (12pm-6pm)
+- "en la noche", "por la noche", "nocturno" → time_of_day="EVENING" (6pm-10pm)
+- "muy temprano", "madrugada" → time_of_day="EARLY_MORNING" (0-6am)
+- "red eye", "vuelo nocturno tarde" → time_of_day="NIGHT" (10pm-12am)
+- Sin preferencia → NO incluyas time_of_day (default ANY)
+
 FLUJO CONVERSACIONAL INTELIGENTE:
 
 1. BÚSQUEDA DE VUELOS:
