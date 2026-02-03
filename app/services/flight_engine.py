@@ -152,7 +152,8 @@ class FlightAggregator:
             except:
                 pass
             
-            # 5. TIME OF DAY PREFERENCE
+            # 5. TIME OF DAY PREFERENCE - Mark if matches requested time
+            flight.matches_time_preference = True  # Default to true
             if time_of_day != "ANY":
                 dep_hour = flight.segments[0].departure_time.hour
                 matches_time = False
@@ -161,26 +162,37 @@ class FlightAggregator:
                 elif time_of_day == "AFTERNOON" and 12 <= dep_hour < 18: matches_time = True
                 elif time_of_day == "EVENING" and 18 <= dep_hour < 22: matches_time = True
                 elif time_of_day == "NIGHT" and 22 <= dep_hour <= 23: matches_time = True
-                
+
+                flight.matches_time_preference = matches_time
                 if matches_time:
-                    score += 25
-            
+                    score += 50  # Strong boost for matching time preference
+
             # 6. PROVIDER PREFERENCE (Duffel more reliable)
             if flight.provider == "DUFFEL":
                 score += 5
-            
+
             flight.score = score
+
+        # FILTER by time_of_day if specified
+        if time_of_day != "ANY":
+            matching_flights = [f for f in all_flights if f.matches_time_preference]
+            if matching_flights:
+                all_flights = matching_flights
+                print(f"DEBUG: Filtered to {len(all_flights)} flights matching {time_of_day}")
+            else:
+                print(f"DEBUG: No flights match {time_of_day}, returning all results")
 
         # Sort by score (highest first)
         all_flights.sort(key=lambda f: f.score, reverse=True)
-        
+
         # Log top 3 scores
         for i, flight in enumerate(all_flights[:3]):
             segments = len(flight.segments)
             carrier = flight.segments[0].carrier_code if flight.segments else "?"
-            print(f"DEBUG: Rank {i+1}: {carrier} - Score={flight.score}, Segments={segments}, Price=${flight.price}")
-        
-        return all_flights[:30]  # Return top 30 (was 15)
+            dep_time = flight.segments[0].departure_time.strftime("%H:%M") if flight.segments else "?"
+            print(f"DEBUG: Rank {i+1}: {carrier} {dep_time} - Score={flight.score}, Segments={segments}, Price=${flight.price}")
+
+        return all_flights[:30]  # Return top 30
 
 
     async def search_multicity(self, segments: List[Dict[str, str]], cabin_class="ECONOMY", num_passengers=1) -> List[AntigravityFlight]:
