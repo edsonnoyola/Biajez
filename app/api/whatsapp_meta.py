@@ -844,12 +844,63 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             send_whatsapp_message(from_number, response_text)
             return {"status": "ok"}
         
-        # ===== HOTEL SEARCH - NOW HANDLED BY AI AGENT =====
-        # The AI agent has google_hotels function with better NLP
-        # It can parse dates like "del 8 al 9 de feb" automatically
-        # Commenting out manual handler to avoid conflicts
-        
-        # # Buscar hoteles - EXPANDED KEYWORDS
+        # ===== HOTEL SEARCH - DIRECT HANDLER =====
+        hotel_keywords = ['hotel', 'hospedaje', 'alojamiento', 'habitación', 'donde quedarme']
+        if any(keyword in msg_lower for keyword in hotel_keywords):
+            from app.services.hotel_engine import HotelEngine
+            from app.utils.date_parser import SmartDateParser
+
+            # Extract city
+            city = None
+            for pattern in ['en ', 'in ']:
+                if pattern in msg_lower:
+                    parts = msg_lower.split(pattern)
+                    if len(parts) > 1:
+                        # Get words after pattern, skip date words
+                        words = parts[1].split()
+                        for word in words:
+                            if word not in ['del', 'el', 'la', 'los', 'las', 'de', 'al', 'para', 'checkin', 'checkout'] and len(word) > 2:
+                                city = word.replace(',', '').replace('.', '')
+                                break
+                        if city:
+                            break
+
+            if not city:
+                send_whatsapp_message(from_number, "🏨 ¿En qué ciudad buscas hotel?\nEjemplo: hotel en cancun del 20 al 23 febrero")
+                return {"status": "ok"}
+
+            # Parse dates from message
+            checkin, checkout = SmartDateParser.parse_date_range(incoming_msg)
+
+            if not checkin or not checkout:
+                # Store city and ask for dates
+                session["pending_hotel_search"] = {"city": city}
+                session_manager.save_session(from_number, session)
+                send_whatsapp_message(from_number, f"🏨 Buscando en *{city.title()}*\n\n📅 ¿Cuáles son las fechas?\nEjemplo: del 20 al 23 de febrero")
+                return {"status": "ok"}
+
+            # Search hotels
+            hotel_engine = HotelEngine()
+            hotels = hotel_engine.search_hotels(city=city, checkin=checkin, checkout=checkout)
+
+            if hotels:
+                session["pending_hotels"] = hotels[:5]
+                session["hotel_dates"] = {"checkin": checkin, "checkout": checkout}
+                session_manager.save_session(from_number, session)
+
+                response_text = f"🏨 *Hoteles en {city.title()}*\n📅 {checkin} al {checkout}\n\n"
+                for i, h in enumerate(hotels[:5], 1):
+                    name = h.get('name', 'N/A')[:35]
+                    price = h.get('price', 'N/A')
+                    response_text += f"{i}. {name} - ${price}/noche\n"
+                response_text += "\n📩 Responde con el número para ver detalles"
+            else:
+                response_text = f"😔 No encontré hoteles en {city.title()} para esas fechas."
+
+            send_whatsapp_message(from_number, response_text)
+            return {"status": "ok"}
+
+        # # Legacy handler (commented out)
         # hotel_keywords = [
         #     'busca hoteles', 'hotel en', 'hoteles en', 'buscar hotel',
         #     'quiero hotel', 'in hotel', 'necesito hotel', 'quiero in hotel',
