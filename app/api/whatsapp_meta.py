@@ -1806,7 +1806,8 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
                 # COMPACT: Store only summary in messages to avoid "Request too large"
                 if isinstance(tool_result, list) and len(tool_result) > 0:
-                    compact_result = f"Found {len(tool_result)} results. Data stored in session."
+                    # Tell AI NOT to invent data - results will be shown by format_for_whatsapp
+                    compact_result = f"Found {len(tool_result)} results. DO NOT list prices or times - they will be shown automatically. Just say a brief intro like 'Aquí están las opciones:' or 'Encontré X vuelos disponibles:'"
                 else:
                     compact_result = json.dumps(tool_result, default=str)[:500]  # Limit size
 
@@ -1816,11 +1817,19 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     "content": compact_result
                 })
                 session_manager.save_session(from_number, session)  # Save after tool result
-            
-            final_response = await agent.chat(session["messages"], "", session_context)
-            session["messages"].append({"role": "assistant", "content": final_response.content})
-            session_manager.save_session(from_number, session)  # Save final AI response
-            response_text = final_response.content
+
+            # If we have pending flights/hotels, use simple intro instead of AI-generated response
+            if session.get("pending_flights") or session.get("pending_hotels"):
+                # Don't let AI invent data - just use a simple intro
+                if session.get("pending_flights"):
+                    response_text = f"Encontré {len(session['pending_flights'])} vuelos disponibles:"
+                else:
+                    response_text = f"Encontré {len(session['pending_hotels'])} hoteles disponibles:"
+            else:
+                final_response = await agent.chat(session["messages"], "", session_context)
+                session["messages"].append({"role": "assistant", "content": final_response.content})
+                session_manager.save_session(from_number, session)  # Save final AI response
+                response_text = final_response.content
         else:
             # When OpenAI responds with just text (no tool calls), it means either:
             # 1. It's asking for more info from user (e.g., multidestino details)
