@@ -152,8 +152,7 @@ class FlightAggregator:
             except:
                 pass
             
-            # 5. TIME OF DAY PREFERENCE - Mark if matches requested time
-            flight.matches_time_preference = True  # Default to true
+            # 5. TIME OF DAY PREFERENCE
             if time_of_day != "ANY":
                 dep_hour = flight.segments[0].departure_time.hour
                 matches_time = False
@@ -163,7 +162,6 @@ class FlightAggregator:
                 elif time_of_day == "EVENING" and 18 <= dep_hour < 22: matches_time = True
                 elif time_of_day == "NIGHT" and 22 <= dep_hour <= 23: matches_time = True
 
-                flight.matches_time_preference = matches_time
                 if matches_time:
                     score += 50  # Strong boost for matching time preference
 
@@ -175,7 +173,16 @@ class FlightAggregator:
 
         # FILTER by time_of_day if specified
         if time_of_day != "ANY":
-            matching_flights = [f for f in all_flights if f.matches_time_preference]
+            def matches_time_filter(flight):
+                dep_hour = flight.segments[0].departure_time.hour
+                if time_of_day == "EARLY_MORNING": return 0 <= dep_hour < 6
+                elif time_of_day == "MORNING": return 6 <= dep_hour < 12
+                elif time_of_day == "AFTERNOON": return 12 <= dep_hour < 18
+                elif time_of_day == "EVENING": return 18 <= dep_hour < 22
+                elif time_of_day == "NIGHT": return 22 <= dep_hour <= 23
+                return True
+
+            matching_flights = [f for f in all_flights if matches_time_filter(f)]
             if matching_flights:
                 all_flights = matching_flights
                 print(f"DEBUG: Filtered to {len(all_flights)} flights matching {time_of_day}")
