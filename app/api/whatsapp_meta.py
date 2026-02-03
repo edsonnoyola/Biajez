@@ -53,6 +53,7 @@ flight_aggregator = FlightAggregator()
 AUTHORIZED_NUMBERS = [
     "525610016226",  # Admin
     "525572461012",  # User
+    "18098601748",   # Monnyka (RD)
 ]
 
 def normalize_mx_number(phone_number: str) -> str:
