@@ -68,7 +68,7 @@ class FlightAggregator:
         """
         Parallel execution of Amadeus and Duffel searches with intelligent scoring.
         """
-        print(f"DEBUG: Searching flights - Origin: {origin}, Dest: {destination}, Date: {departure_date}, Cabin: {cabin_class}, Time: {time_of_day}")
+        print(f"DEBUG: Searching flights - Origin: {origin}, Dest: {destination}, Date: {departure_date}, Cabin: {cabin_class}, Time: {time_of_day}, AIRLINE: {airline}")
         
         # Run all THREE sources in parallel
         amadeus_task = asyncio.create_task(self._search_amadeus(origin, destination, departure_date, cabin_class, airline, return_date))
@@ -188,6 +188,24 @@ class FlightAggregator:
                 print(f"DEBUG: Filtered to {len(all_flights)} flights matching {time_of_day}")
             else:
                 print(f"DEBUG: No flights match {time_of_day}, returning all results")
+
+        # FILTER by airline if specified - SHOW ONLY REQUESTED AIRLINE
+        if airline:
+            airline_upper = airline.upper()
+            def matches_airline_filter(flight):
+                if not flight.segments:
+                    return False
+                carrier = flight.segments[0].carrier_code
+                return carrier and carrier.upper() == airline_upper
+
+            airline_flights = [f for f in all_flights if matches_airline_filter(f)]
+            if airline_flights:
+                all_flights = airline_flights
+                print(f"DEBUG: Filtered to {len(all_flights)} flights for airline {airline}")
+            else:
+                print(f"DEBUG: No flights found for airline {airline}, returning all results with warning")
+                # Mark that no flights from requested airline were found
+                # The AI should inform the user
 
         # Sort by score (highest first)
         all_flights.sort(key=lambda f: f.score, reverse=True)
