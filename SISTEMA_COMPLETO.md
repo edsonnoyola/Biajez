@@ -1,241 +1,200 @@
-# 🚀 Sistema de Reservas - Guía Completa
+# Sistema Biajez - Estado Actual
 
-## ✅ **ESTADO ACTUAL: FUNCIONAL**
+## ESTADO: 100% FUNCIONAL
 
-### **Compra Real Confirmada**
+### Modo de Operacion
+- **Vuelos:** Duffel LIVE (precios reales)
+- **Hoteles:** LiteAPI Sandbox
+- **WhatsApp:** Meta Business API
+- **AI:** OpenAI GPT-4o
+
+---
+
+## Features Implementadas
+
+### Vuelos
+- [x] Busqueda con Duffel LIVE
+- [x] Filtro por aerolinea (AA, CM, AM, etc.)
+- [x] Filtro por horario (manana, tarde, noche)
+- [x] Filtro por clase (economy, business)
+- [x] Vuelos redondos
+- [x] Multi-destino (2-3 tramos)
+- [x] Reservacion con PNR real
+
+### Hoteles
+- [x] Busqueda con LiteAPI
+- [x] Duffel Stays (sandbox)
+- [x] Filtro por fechas
+- [x] Reservacion
+
+### Gestion de Viajes
+- [x] Itinerario (proximo viaje)
+- [x] Historial (viajes pasados)
+- [x] Equipaje adicional
+- [x] Check-in automatico
+- [x] Recordatorio de check-in
+
+### Servicios Adicionales
+- [x] Verificacion de visa
+- [x] Alertas de precio
+- [x] Notificaciones push WhatsApp
+- [x] Background scheduler
+
+---
+
+## Comandos WhatsApp
+
+### Vuelos
 ```
-PNR: LWMUX5
-Precio: $98.40 USD
-Ruta: MEX → CUN (20 Enero 2026)
-Proveedor: Duffel (Test Mode)
+vuelo de MEX a MIA el 15 de febrero
+vuelo MEX a MAD por Aeromexico
+vuelo SDQ a JFK en la manana
+vuelo MEX a LAX en business
+vuelo MEX a CUN del 10 al 15 marzo (redondo)
+```
+
+### Multi-destino
+```
+vuelo MEX a MIA el 1 marzo, luego MIA a MAD el 5
+multicity MEX MIA MAD
+```
+
+### Hoteles
+```
+hotel en Cancun del 20 al 25 febrero
+hoteles en CDMX
+```
+
+### Servicios
+```
+itinerario
+historial
+equipaje
+checkin
+auto checkin
+visa US
+alertas
+crear alerta
+ayuda
 ```
 
 ---
 
-## 🎯 **Cómo Usar el Sistema**
+## Scheduler Jobs
 
-### **1. Iniciar Servidores**
+| Job | Frecuencia | Descripcion |
+|-----|------------|-------------|
+| process_auto_checkins | 15 min | Procesa check-ins pendientes |
+| check_price_alerts | 6 horas | Verifica precios y notifica |
+| refresh_visa_cache | 3 AM | Actualiza cache de visa |
+| send_trip_reminders | 8 AM | Recordatorios de viaje |
 
-**Backend:**
+---
+
+## APIs y Tokens
+
+### Activos
+| API | Estado | Modo |
+|-----|--------|------|
+| Duffel | OK | LIVE |
+| LiteAPI | OK | Sandbox |
+| OpenAI | OK | Production |
+| WhatsApp | OK | Production |
+| Stripe | OK | Test |
+
+### Variables de Entorno
 ```bash
-cd /Users/end/Downloads/Biajez
-python3 -m uvicorn app.main:app --port 8000
-```
-
-**Frontend:**
-```bash
-cd /Users/end/Downloads/Biajez/frontend
-npm run dev
-```
-
-**URLs:**
-- Frontend: http://localhost:5174
-- Backend API: http://localhost:8000
-- API Docs: http://localhost:8000/docs
-
----
-
-### **2. Buscar Vuelos**
-
-**Opción A: Interfaz Web**
-1. Abre http://localhost:5174
-2. Escribe: "Busca vuelos de Mexico a Cancun para el 20 de enero"
-3. El AI buscará y mostrará 15+ vuelos
-
-**Opción B: API Directa**
-```bash
-curl "http://localhost:8000/v1/search?origin=MEX&destination=CUN&date=2026-01-20&cabin=ECONOMY"
+DUFFEL_ACCESS_TOKEN=duffel_live_xxx  # LIVE
+LITEAPI_API_KEY=sand_xxx             # Sandbox
+OPENAI_API_KEY=sk-xxx                # Production
+WHATSAPP_ACCESS_TOKEN=xxx            # Production
+STRIPE_SECRET_KEY=sk_test_xxx        # Test
 ```
 
 ---
 
-### **3. Comprar Vuelo**
+## Usuarios Autorizados
 
-**API:**
-```bash
-curl -X POST "http://localhost:8000/v1/book?user_id=USER123&offer_id=DUFFEL::off_XXX::pas_YYY&provider=DUFFEL&amount=98.40"
-```
-
-**Respuesta:**
-```json
-{
-  "pnr": "LWMUX5",
-  "ticket_number": "ord_0000B1A51EDcwJBqGUwNGq",
-  "ticket_url": "/tickets/ticket_LWMUX5.html"
-}
-```
-
----
-
-## 🔧 **Features Funcionando**
-
-### ✅ **Vuelos (Duffel)**
-- [x] Búsqueda de 15+ vuelos reales
-- [x] Compras directas con PNR
-- [x] Generación de tickets HTML
-- [x] Scoring inteligente (directos primero)
-- [x] Test mode (no cobra dinero real)
-
-### ✅ **Sistema AI**
-- [x] Chat conversacional
-- [x] Entendimiento de fechas relativas
-- [x] Tool calling automático
-- [x] Respuestas en español
-
-### ✅ **Backend**
-- [x] FastAPI con endpoints REST
-- [x] Base de datos SQLite
-- [x] Perfiles de usuario
-- [x] Historial de viajes
-
-### ✅ **Frontend**
-- [x] React + TypeScript
-- [x] Chat interface
-- [x] Flight cards
-- [x] Responsive design
-
----
-
-## ⚠️ **Limitaciones Actuales**
-
-### **Hoteles**
-- ❌ Amadeus bloqueado (401 error)
-- ⚠️ LiteAPI sin datos en sandbox
-- **Solución:** Arreglar Amadeus o fondear LiteAPI
-
-### **Inventario de Vuelos**
-- ✅ Duffel: 15+ vuelos
-- ❌ Amadeus: 0 (bloqueado)
-- ❌ Travelpayouts: Removido (solo affiliate)
-
----
-
-## 🐛 **Bugs Arreglados**
-
-### **Bug Crítico: Parámetros Incorrectos**
-**Problema:** `/v1/search` pasaba `cabin` como `return_date`
-
-**Antes:**
+Numeros con acceso a reservaciones:
 ```python
-search_hybrid_flights(origin, destination, date, cabin)
-# cabin → return_date ❌
-```
-
-**Después:**
-```python
-search_hybrid_flights(
-    origin=origin,
-    destination=destination,
-    departure_date=date,
-    return_date=None,  # ✅
-    cabin_class=cabin  # ✅
-)
+AUTHORIZED_NUMBERS = [
+    "525610016226",  # Admin
+    "525572461012",  # User
+    "18098601748",   # Monnyka (RD)
+]
 ```
 
 ---
 
-## 📝 **Scripts de Prueba**
+## Pruebas Realizadas
 
-### **Test Rápido (Recomendado)**
-```bash
-python3 test_quick_booking.py
-```
+### Vuelos (todos OK)
+| Ruta | Tipo | Resultados |
+|------|------|------------|
+| SDQ → MIA | Ida | 30 vuelos |
+| MEX → MAD | Internacional | 30 vuelos |
+| GDL → LAX | Redondo | 30 vuelos |
+| MEX→MIA→MAD | Multi 2 | 261 vuelos |
+| MEX→MIA→JFK→LAX | Multi 3 | 80 vuelos |
+| SDQ→MIA (AA) | Filtro aerolinea | 20 vuelos |
+| MEX→MIA (AM) | Filtro horario | 30 vuelos |
+| MEX→LAX | Business | 30 vuelos |
 
-Resultado esperado:
-```
-✅ Encontrados 15 vuelos
-💰 Comprando: $XX.XX USD
-✅ ¡COMPRA EXITOSA!
-   PNR: XXXXXX
-```
+### Hoteles
+| Ciudad | Resultados |
+|--------|------------|
+| Cancun | 7 hoteles |
+| CDMX | Variable |
 
-### **Test Completo**
-```bash
-python3 test_e2e_booking.py
+---
+
+## Estructura de Archivos
+
+```
+app/
+├── api/
+│   ├── routes.py           # API REST
+│   └── whatsapp_meta.py    # WhatsApp webhook
+├── ai/
+│   └── agent.py            # AI con tools
+├── models/
+│   └── models.py           # DB models
+└── services/
+    ├── flight_engine.py
+    ├── hotel_engine.py
+    ├── booking_execution.py
+    ├── itinerary_service.py
+    ├── baggage_service.py
+    ├── checkin_service.py
+    ├── visa_service.py
+    ├── price_alert_service.py
+    ├── scheduler_service.py
+    └── push_notification_service.py
 ```
 
 ---
 
-## 🔑 **Variables de Entorno**
+## Deployment
 
-**Funcionando:**
-```bash
-DUFFEL_ACCESS_TOKEN=duffel_test_xxx  # ✅
-OPENAI_API_KEY=sk-xxx                # ✅
-```
+### Render
+- URL: https://biajez.onrender.com
+- Auto-deploy desde GitHub
+- Redis disponible
 
-**Bloqueadas:**
-```bash
-AMADEUS_CLIENT_ID=xxx                # ❌ 401 error
-AMADEUS_CLIENT_SECRET=xxx            # ❌ 401 error
-LITEAPI_API_KEY=sand_xxx             # ⚠️ Sandbox vacío
-```
+### WhatsApp Webhook
+- URL: https://biajez.onrender.com/v1/whatsapp/webhook
+- Verify Token: biajez_verify_token_123
 
 ---
 
-## 🎯 **Próximos Pasos**
+## Proximos Pasos (Opcionales)
 
-### **Prioridad 1: Expandir Inventario**
-1. **Arreglar Amadeus** (gratis)
-   - Crear cuenta nueva
-   - Obtener keys frescas
-   - **Resultado:** +400 aerolíneas + hoteles
-
-2. **O activar LiteAPI** (requiere fondeo)
-   - Fondear wallet
-   - Cambiar a producción
-   - **Resultado:** +300k hoteles
-
-### **Prioridad 2: Features Adicionales**
-- [ ] Vuelos multi-ciudad
-- [ ] Selección de asientos
-- [ ] Gestión de reservas
-- [ ] Cancelaciones/reembolsos
+- [ ] Activar LiteAPI produccion (requiere fondeo)
+- [ ] Activar Amadeus (crear cuenta nueva)
+- [ ] Seleccion de asientos
+- [ ] Pagos con Stripe en produccion
+- [ ] Frontend web
 
 ---
 
-## 📊 **Métricas del Sistema**
-
-| Métrica | Valor |
-|---------|-------|
-| Vuelos por búsqueda | 15+ |
-| Tiempo de búsqueda | ~5-10s |
-| Precio mínimo | ~$90 USD |
-| Tasa de éxito | 100% |
-| Proveedores activos | 1 (Duffel) |
-
----
-
-## 🆘 **Troubleshooting**
-
-### **No encuentra vuelos**
-- Verifica que la fecha sea futura (después de hoy)
-- Usa códigos IATA válidos (MEX, CUN, MAD, etc.)
-- Revisa logs del backend
-
-### **Error 401 en Amadeus**
-- Normal, las keys están bloqueadas
-- Crear cuenta nueva en amadeus.com
-
-### **Frontend no carga**
-- Verifica que backend esté en puerto 8000
-- Revisa CORS en `app/main.py`
-
----
-
-## ✅ **Checklist de Funcionalidad**
-
-- [x] Backend arranca sin errores
-- [x] Frontend se conecta al backend
-- [x] Búsqueda de vuelos funciona
-- [x] Compra de vuelos funciona
-- [x] PNR se genera correctamente
-- [x] Tickets HTML se crean
-- [x] Chat AI responde
-- [ ] Hoteles funcionan (bloqueado)
-- [ ] Multi-ciudad funciona
-- [ ] Seat selection funciona
-
----
-
-**Sistema operacional al 80%** - Solo falta expandir inventario con Amadeus/LiteAPI.
+**Sistema 100% operacional**
