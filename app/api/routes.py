@@ -17,8 +17,19 @@ hotel_engine = HotelEngine()
 agent = AntigravityAgent()
 
 @router.get("/v1/search")
-async def search_flights(origin: str, destination: str, date: str, cabin: str = "ECONOMY"):
-    return await flight_aggregator.search_hybrid_flights(origin, destination, date, cabin)
+async def search_flights(
+    origin: str,
+    destination: str,
+    date: str,
+    cabin: str = "ECONOMY",
+    airline: str = None,
+    time_of_day: str = "ANY",
+    return_date: str = None,
+    passengers: int = 1
+):
+    return await flight_aggregator.search_hybrid_flights(
+        origin, destination, date, return_date, cabin, airline, time_of_day, passengers
+    )
 
 # ===== BATCH SEARCH ENDPOINTS =====
 
