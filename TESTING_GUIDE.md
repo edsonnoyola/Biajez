@@ -1,338 +1,220 @@
-# 🧪 GUÍA DE PRUEBAS - AIRLINE CREDITS
+# Guia de Pruebas - Biajez
 
-Esta guía te ayudará a probar todas las funcionalidades implementadas.
+## Pre-requisitos
 
-## 📋 Pre-requisitos
-
-1. **Backend corriendo**:
-   ```bash
-   cd /Users/end/Downloads/Biajez
-   uvicorn app.main:app --reload
-   ```
-
-2. **Frontend corriendo**:
-   ```bash
-   cd /Users/end/Downloads/Biajez/frontend
-   npm run dev
-   ```
-
----
-
-## ✅ PRUEBA 1: Backend API Tests
-
-### 1.1 Crear un crédito de prueba
-
+### Local
 ```bash
-curl -X POST http://localhost:8000/v1/credits/create \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "demo-user",
-    "airline_iata_code": "AM",
-    "amount": 150.00,
-    "currency": "USD",
-    "expires_days": 365
-  }'
+cd /Users/end/Downloads/Biajez
+source .venv/bin/activate
+uvicorn app.main:app --reload --port 8000
 ```
 
-**Resultado esperado:**
-```json
-{
-  "id": "acd_xxx",
-  "user_id": "demo-user",
-  "airline_iata_code": "AM",
-  "credit_amount": 150.0,
-  "credit_currency": "USD",
-  "expires_at": "2027-01-09T..."
-}
-```
+### Produccion
+- URL: https://biajez.onrender.com
+- WhatsApp: Enviar mensaje al bot
 
-### 1.2 Listar créditos del usuario
+---
 
+## Pruebas de WhatsApp
+
+### Vuelos Basicos
+
+| Test | Mensaje | Resultado Esperado |
+|------|---------|-------------------|
+| Ida simple | `vuelo de MEX a MIA el 15 feb` | Lista de vuelos con precios |
+| Redondo | `vuelo MEX a CUN del 10 al 15 marzo` | Vuelos ida y vuelta |
+| Manana | `vuelo SDQ a JFK en la manana` | Solo vuelos 6am-12pm |
+| Tarde | `vuelo MEX a LAX en la tarde` | Solo vuelos 12pm-6pm |
+| Noche | `vuelo BOG a MIA en la noche` | Solo vuelos 6pm-12am |
+
+### Filtros de Aerolinea
+
+| Test | Mensaje | Resultado Esperado |
+|------|---------|-------------------|
+| American | `vuelo SDQ a MIA por American Airlines` | Solo vuelos AA |
+| Aeromexico | `vuelo MEX a MAD por Aeromexico` | Solo vuelos AM |
+| Copa | `vuelo PTY a BOG por Copa` | Solo vuelos CM |
+
+### Clase de Cabina
+
+| Test | Mensaje | Resultado Esperado |
+|------|---------|-------------------|
+| Business | `vuelo MEX a LAX en business` | Vuelos clase business |
+| Primera | `vuelo MEX a JFK en primera` | Vuelos primera clase |
+
+### Multi-destino
+
+| Test | Mensaje | Resultado Esperado |
+|------|---------|-------------------|
+| 2 tramos | `vuelo MEX a MIA el 1 marzo, luego MIA a MAD el 5` | Itinerario multi-ciudad |
+| 3 tramos | `MEX a MIA el 1, MIA a JFK el 5, JFK a LAX el 10` | 3 segmentos |
+
+---
+
+## Pruebas de Hoteles
+
+| Test | Mensaje | Resultado Esperado |
+|------|---------|-------------------|
+| Basico | `hotel en Cancun del 20 al 25 feb` | Lista de hoteles |
+| Ciudad | `hoteles en CDMX` | Pide fechas |
+| Con fechas | `hotel Punta Cana 15 al 20 marzo` | Lista con precios |
+
+---
+
+## Pruebas de Servicios
+
+### Gestion de Viajes
+
+| Test | Mensaje | Resultado Esperado |
+|------|---------|-------------------|
+| Itinerario | `itinerario` | Proximo viaje o "no tienes viajes" |
+| Historial | `historial` | Lista de viajes pasados |
+| Equipaje | `equipaje` | Opciones de equipaje adicional |
+
+### Check-in
+
+| Test | Mensaje | Resultado Esperado |
+|------|---------|-------------------|
+| Status | `checkin` | Status actual de check-in |
+| Auto | `auto checkin` | Programa recordatorio |
+
+### Visa
+
+| Test | Mensaje | Resultado Esperado |
+|------|---------|-------------------|
+| USA | `visa US` | Requisitos para USA |
+| Espana | `visa MAD` | Requisitos para Espana |
+| India | `visa IN` | Requisitos e-visa |
+
+### Alertas
+
+| Test | Mensaje | Resultado Esperado |
+|------|---------|-------------------|
+| Ver | `alertas` | Lista de alertas activas |
+| Crear | `crear alerta` | Crea alerta (despues de buscar) |
+
+---
+
+## Pruebas API (curl)
+
+### Busqueda de Vuelos
 ```bash
-curl http://localhost:8000/v1/credits/demo-user
+curl "https://biajez.onrender.com/v1/search?origin=MEX&destination=MIA&date=2026-02-15"
 ```
 
-**Resultado esperado:**
-- Lista con el crédito creado
-- `is_valid: true`
-- `is_expired: false`
-
-### 1.3 Obtener créditos para Aeroméxico
-
+### Con Filtros
 ```bash
-curl http://localhost:8000/v1/credits/available/demo-user/AM
+# Con aerolinea
+curl "https://biajez.onrender.com/v1/search?origin=SDQ&destination=MIA&date=2026-02-15&airline=AA"
+
+# Business class
+curl "https://biajez.onrender.com/v1/search?origin=MEX&destination=LAX&date=2026-02-20&cabin=BUSINESS"
+
+# En la manana
+curl "https://biajez.onrender.com/v1/search?origin=MEX&destination=MIA&date=2026-02-18&time_of_day=MORNING"
 ```
 
-**Resultado esperado:**
-- Solo créditos de Aeroméxico (AM)
-- Solo créditos válidos (no usados, no expirados)
-
-### 1.4 Ver balance total
-
+### Scheduler Status
 ```bash
-curl http://localhost:8000/v1/credits/balance/demo-user
-```
-
-**Resultado esperado:**
-```json
-{
-  "balances": {
-    "USD": 150.0
-  }
-}
+curl "https://biajez.onrender.com/scheduler/status"
 ```
 
 ---
 
-## ✅ PRUEBA 2: Frontend - Ver Créditos
+## Pruebas de Python
 
-### 2.1 Abrir Modal de Créditos
+### Test de Vuelos
+```python
+from dotenv import load_dotenv
+load_dotenv()
 
-1. Abre la app en el navegador: `http://localhost:5173`
-2. Haz clic en **"My Trips"**
-3. Haz clic en **"My Credits"** (botón verde con icono de wallet)
+import asyncio
+from app.services.flight_engine import FlightAggregator
 
-**Resultado esperado:**
-- Modal se abre
-- Muestra "1 available credit"
-- Muestra balance total: "USD $150.00"
-- Lista el crédito con:
-  - Monto: USD $150.00
-  - Aerolínea: AM
-  - Fecha de expiración
-  - Badge verde "ACTIVE"
+async def test():
+    fa = FlightAggregator()
 
-### 2.2 Filtrar créditos usados
+    # Basico
+    results = await fa.search_hybrid_flights('MEX', 'MIA', '2026-02-15')
+    print(f"Vuelos: {len(results)}")
 
-1. En el modal de créditos
-2. Marca el checkbox "Show used and expired credits"
+    # Con filtro
+    results = await fa.search_hybrid_flights('SDQ', 'MIA', '2026-02-15', airline='AA')
+    print(f"Vuelos AA: {len(results)}")
 
-**Resultado esperado:**
-- Si hay créditos usados, aparecen en sección separada
-- Tienen badge gris "USED"
-- Están atenuados visualmente
-
----
-
-## ✅ PRUEBA 3: Frontend - Usar Crédito en Booking
-
-### 3.1 Buscar vuelo de Aeroméxico
-
-1. En el chat, escribe:
-   ```
-   Busca vuelos de Ciudad de México a Cancún para el 15 de febrero
-   ```
-
-2. Espera los resultados
-
-3. **Filtra por Aeroméxico**:
-   - Busca un vuelo con código de aerolínea "AM"
-   - Si no aparece AM, busca otra ruta donde AM opere
-
-### 3.2 Abrir Booking Modal
-
-1. Haz clic en **"Book Now"** en un vuelo de Aeroméxico
-
-**Resultado esperado:**
-- Modal de booking se abre
-- Muestra precio del vuelo (ej: $200)
-
-### 3.3 Ver Sección de Créditos
-
-En el modal de booking, busca la sección **"Available Credits"**
-
-**Resultado esperado:**
-- Sección aparece automáticamente
-- Muestra el crédito de $150 AM
-- Tiene checkbox para seleccionar
-- Muestra fecha de expiración
-
-### 3.4 Seleccionar Crédito
-
-1. Marca el checkbox del crédito
-
-**Resultado esperado:**
-- Checkbox se marca
-- Fondo cambia a verde
-- Aparece checkmark ✓
-- **Precio se actualiza**:
-  ```
-  Flight: $200
-  Credit: -$150
-  ─────────────
-  Total: $50
-  ```
-
-### 3.5 Deseleccionar Crédito
-
-1. Desmarca el checkbox
-
-**Resultado esperado:**
-- Precio vuelve a $200
-- Fondo vuelve a gris
-- Checkmark desaparece
-
----
-
-## ✅ PRUEBA 4: Flujo Completo de Pago con Crédito
-
-### 4.1 Preparación
-
-1. Asegúrate de tener un crédito de AM de $150
-2. Busca un vuelo de Aeroméxico de ~$200
-
-### 4.2 Proceso de Checkout
-
-1. Selecciona el vuelo
-2. En booking modal, selecciona el crédito
-3. Verifica que precio muestra $50
-4. Haz clic en **"Proceed to Payment"**
-5. Completa el pago con tarjeta de prueba:
-   - Número: `4242 4242 4242 4242`
-   - Fecha: Cualquier fecha futura
-   - CVC: Cualquier 3 dígitos
-
-**Resultado esperado:**
-- Pago de $50 (no $200)
-- Booking exitoso
-- Mensaje de confirmación
-
-### 4.3 Verificar Crédito Usado
-
-1. Cierra el modal de confirmación
-2. Abre **"My Trips"** → **"My Credits"**
-3. Marca "Show used and expired credits"
-
-**Resultado esperado:**
-- Crédito aparece en sección "Used Credits"
-- Tiene badge "USED"
-- Muestra fecha de uso
-- Ya NO aparece en "Available Credits"
-
----
-
-## ✅ PRUEBA 5: Validaciones
-
-### 5.1 Crédito de Aerolínea Diferente
-
-1. Crea un crédito de Delta (DL):
-   ```bash
-   curl -X POST http://localhost:8000/v1/credits/create \
-     -H "Content-Type: application/json" \
-     -d '{
-       "user_id": "demo-user",
-       "airline_iata_code": "DL",
-       "amount": 100.00,
-       "currency": "USD"
-     }'
-   ```
-
-2. Busca un vuelo de Aeroméxico (AM)
-3. Abre booking modal
-
-**Resultado esperado:**
-- Solo muestra crédito de AM ($150)
-- NO muestra crédito de DL ($100)
-- Validación automática por aerolínea
-
-### 5.2 Crédito Mayor que Precio
-
-1. Crea un crédito de $300
-2. Busca un vuelo de $200
-3. Selecciona el crédito
-
-**Resultado esperado:**
-- Total: $0.00 (no negativo)
-- `Math.max(0, price - credit)` funciona
-
----
-
-## ✅ PRUEBA 6: Cancelación con Crédito
-
-### 6.1 Hacer una Reserva
-
-1. Reserva cualquier vuelo
-2. Completa el pago
-3. Anota el PNR
-
-### 6.2 Cancelar el Vuelo
-
-1. Abre **"My Trips"**
-2. Encuentra tu reserva
-3. Haz clic en **"Cancel Trip"**
-4. Confirma la cancelación
-
-**Resultado esperado:**
-- Vuelo cancelado
-- **Crédito automático creado** con el monto del reembolso
-- Mensaje: "✅ $XXX credit added to your account"
-
-### 6.3 Verificar Crédito Creado
-
-1. Abre **"My Credits"**
-
-**Resultado esperado:**
-- Nuevo crédito aparece
-- Monto = refund amount
-- Aerolínea = aerolínea del vuelo cancelado
-
----
-
-## 🎯 Checklist de Pruebas
-
-- [ ] Backend API responde correctamente
-- [ ] Crear crédito funciona
-- [ ] Listar créditos funciona
-- [ ] Filtro por aerolínea funciona
-- [ ] Modal "My Credits" se abre
-- [ ] Créditos se muestran correctamente
-- [ ] Sección de créditos aparece en booking
-- [ ] Seleccionar crédito actualiza precio
-- [ ] Pago con crédito funciona
-- [ ] Crédito se marca como usado
-- [ ] Validación por aerolínea funciona
-- [ ] Cancelación genera crédito automático
-
----
-
-## 🐛 Troubleshooting
-
-### Error: "Connection refused"
-**Solución:** Inicia el backend
-```bash
-uvicorn app.main:app --reload
+asyncio.run(test())
 ```
 
-### Error: "No credits shown"
-**Solución:** Crea un crédito de prueba con curl
+### Test de Hoteles
+```python
+from app.services.liteapi_hotels import LiteAPIHotels
 
-### Error: "Credit not applied"
-**Solución:** Verifica que la aerolínea del crédito coincida con la del vuelo
-
-### Error: "Price not updating"
-**Solución:** Revisa la consola del navegador (F12) para errores
-
----
-
-## 📊 Resultados Esperados
-
-Si todas las pruebas pasan:
-
-✅ **Backend**: Todos los endpoints funcionan
-✅ **Frontend**: UI muestra créditos correctamente
-✅ **Integración**: Créditos se aplican en checkout
-✅ **Validación**: Solo créditos válidos se muestran
-✅ **Persistencia**: Créditos se marcan como usados
-✅ **Automatización**: Cancelaciones generan créditos
-
----
-
-## 🚀 Script Automatizado
-
-Para probar el backend automáticamente:
-
-```bash
-python3 test_credits_complete.py
+api = LiteAPIHotels()
+hotels = api.search_hotels("Cancun", "2026-02-20", "2026-02-25")
+print(f"Hoteles: {len(hotels)}")
 ```
 
-**Nota:** Requiere que el servidor esté corriendo en localhost:8000
+---
+
+## Checklist de Pruebas
+
+### Vuelos
+- [ ] Busqueda basica funciona
+- [ ] Vuelos redondos funcionan
+- [ ] Filtro por aerolinea funciona
+- [ ] Filtro por horario funciona
+- [ ] Clase business funciona
+- [ ] Multi-destino 2 tramos funciona
+- [ ] Multi-destino 3 tramos funciona
+
+### Hoteles
+- [ ] Busqueda basica funciona
+- [ ] Fechas se parsean correctamente
+
+### Servicios
+- [ ] Itinerario muestra viaje proximo
+- [ ] Historial muestra viajes pasados
+- [ ] Equipaje muestra opciones
+- [ ] Check-in muestra status
+- [ ] Auto check-in programa recordatorio
+- [ ] Visa muestra requisitos
+- [ ] Alertas se crean y listan
+
+### Scheduler
+- [ ] Jobs estan programados
+- [ ] /scheduler/status responde
+
+---
+
+## Troubleshooting
+
+### "No encontre vuelos"
+- Verificar fecha es futura
+- Verificar codigos IATA validos
+- Revisar logs del servidor
+
+### "Error de conexion"
+- Verificar servidor esta corriendo
+- Verificar URL correcta
+
+### "Aerolinea no encontrada"
+- Usar codigo IATA (AA, AM, CM)
+- No todos los vuelos tienen todas las aerolineas
+
+---
+
+## Resultados Esperados
+
+| Ruta | Vuelos Tipicos |
+|------|---------------|
+| SDQ → MIA | 20-30 |
+| MEX → MAD | 20-30 |
+| MEX → CUN | 30+ |
+| BOG → JFK | 20-30 |
+| PTY → SCL | 20-30 |
+
+| Ciudad | Hoteles Tipicos |
+|--------|----------------|
+| Cancun | 5-10 |
+| CDMX | Variable |
+| Punta Cana | 5-10 |
