@@ -1,67 +1,91 @@
-# Biatriz - Tu Asistente de Viajes
+# Biajez - Tu Asistente de Viajes por WhatsApp
 
-Bot de WhatsApp + Web App para reservaciones de vuelos y hoteles con IA conversacional.
+Bot de WhatsApp con IA conversacional para buscar y reservar vuelos y hoteles.
 
-## URLs en Produccion
+## URLs de Produccion
 
 | Servicio | URL |
 |----------|-----|
-| Backend API | https://biajez-ah0g.onrender.com |
-| Frontend Web | https://frontend-60c09mm87-edsons-projects-2a12b3a9.vercel.app |
-| WhatsApp Bot | https://wa.me/5215651861011 |
-| API Docs | https://biajez-ah0g.onrender.com/docs |
+| Backend API | https://biajez.onrender.com |
+| API Docs | https://biajez.onrender.com/docs |
+| WhatsApp Bot | Configurado via Meta Business |
 
 ---
 
 ## Comandos de WhatsApp
 
+### Vuelos y Hoteles
+| Comando | Ejemplo |
+|---------|---------|
+| Buscar vuelo | `vuelo de MEX a MIA el 15 de febrero` |
+| Con aerolinea | `vuelo MEX a MIA por American Airlines` |
+| En la manana | `vuelo SDQ a JFK en la manana` |
+| Clase business | `vuelo MEX a MAD en business` |
+| Redondo | `vuelo MEX a CUN del 10 al 15 de marzo` |
+| Multi-destino | `vuelo MEX a MIA el 1 de marzo, luego MIA a MAD el 5` |
+| Hoteles | `hotel en Cancun del 20 al 25 de febrero` |
+
+### Mis Viajes
 | Comando | Descripcion |
 |---------|-------------|
-| `ayuda` | Menu de ayuda con todos los comandos |
-| `vuelos de X a Y fecha Z` | Buscar vuelos |
-| `hoteles en X fecha Y` | Buscar hoteles |
-| `itinerario` | Ver proximos viajes |
-| `historial` | Ver viajes pasados y estadisticas |
+| `itinerario` | Ver proximo viaje con detalles |
+| `historial` | Ver viajes pasados |
 | `equipaje` | Opciones de equipaje adicional |
-| `checkin` | Check-in automatico |
-| `visa` | Verificar requisitos de visa |
+| `checkin` | Status de check-in |
+| `auto checkin` | Programar recordatorio de check-in |
+
+### Otros Servicios
+| Comando | Descripcion |
+|---------|-------------|
+| `visa US` | Verificar requisitos de visa |
+| `alertas` | Ver alertas de precio activas |
+| `crear alerta` | Crear alerta (despues de buscar) |
+| `ayuda` | Menu de ayuda completo |
 
 ---
 
-## Features
+## Features Implementadas
 
-- [x] Busqueda de vuelos (Duffel API)
-- [x] Busqueda de hoteles (LiteAPI)
-- [x] Reservacion de vuelos con PNR
-- [x] Reservacion de hoteles
-- [x] Ver itinerario de viajes proximos
+- [x] Busqueda de vuelos (Duffel LIVE)
+- [x] Busqueda de hoteles (LiteAPI/Duffel Stays)
+- [x] Filtros: aerolinea, horario, clase cabin
+- [x] Vuelos multi-destino (2-3 tramos)
+- [x] Reservacion con PNR real
+- [x] Itinerario de viajes proximos
 - [x] Historial de viajes pasados
-- [x] Informacion de equipaje adicional
-- [x] Check-in automatico
+- [x] Equipaje adicional via Duffel
+- [x] Check-in automatico con recordatorio
 - [x] Verificacion de requisitos de visa
+- [x] Alertas de precio (notifica cuando baja)
 - [x] Notificaciones push por WhatsApp
-- [x] Scheduler para tareas en background
+- [x] Background scheduler (APScheduler)
 - [x] AI conversacional con GPT-4o
+
+---
+
+## Scheduler Jobs
+
+| Job | Frecuencia | Funcion |
+|-----|------------|---------|
+| `process_auto_checkins` | 15 min | Check-ins pendientes |
+| `check_price_alerts` | 6 horas | Verificar precios y notificar |
+| `refresh_visa_cache` | 3 AM | Actualizar cache de visa |
+| `send_trip_reminders` | 8 AM | Recordatorios de viaje |
 
 ---
 
 ## Tech Stack
 
-**Frontend:**
-- React 18 + TypeScript
-- Vite
-- TailwindCSS
-- Vercel (deployment)
-
 **Backend:**
-- FastAPI (Python)
-- PostgreSQL + SQLAlchemy
+- FastAPI (Python 3.11+)
+- SQLAlchemy + SQLite/PostgreSQL
 - APScheduler (background jobs)
+- Redis (sessions, opcional)
 - Render (deployment)
 
-**APIs:**
-- Duffel (vuelos)
-- LiteAPI (hoteles)
+**APIs Integradas:**
+- Duffel (vuelos - LIVE)
+- LiteAPI (hoteles - sandbox)
 - OpenAI GPT-4o (AI)
 - Meta WhatsApp Business API
 - Stripe (pagos)
@@ -70,64 +94,51 @@ Bot de WhatsApp + Web App para reservaciones de vuelos y hoteles con IA conversa
 
 ## Desarrollo Local
 
-### Backend
 ```bash
-cd /path/to/Biajez
+# Clonar e instalar
+git clone https://github.com/edsonnoyola/Biajez.git
+cd Biajez
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+
+# Configurar .env (ver .env.example)
+cp .env.example .env
+
+# Ejecutar
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Frontend
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
 **URLs locales:**
-- Frontend: http://localhost:5173
-- Backend: http://localhost:8000
-- API Docs: http://localhost:8000/docs
+- API: http://localhost:8000
+- Docs: http://localhost:8000/docs
+- Scheduler Status: http://localhost:8000/scheduler/status
 
 ---
 
 ## Variables de Entorno
 
-### Backend (.env)
 ```bash
-DATABASE_URL=postgresql://user:pass@host/db
-DUFFEL_ACCESS_TOKEN=duffel_test_xxx
-OPENAI_API_KEY=sk-xxx
+# APIs de Vuelos/Hoteles
+DUFFEL_ACCESS_TOKEN=duffel_live_xxx
 LITEAPI_API_KEY=sand_xxx
+AMADEUS_CLIENT_ID=xxx
+AMADEUS_CLIENT_SECRET=xxx
+
+# AI
+OPENAI_API_KEY=sk-xxx
+
+# WhatsApp
 WHATSAPP_ACCESS_TOKEN=xxx
 WHATSAPP_PHONE_NUMBER_ID=xxx
 WHATSAPP_VERIFY_TOKEN=xxx
+
+# Database
+DATABASE_URL=sqlite:///./antigravity.db
+
+# Pagos (opcional)
+STRIPE_SECRET_KEY=sk_test_xxx
 ```
-
-### Frontend (.env.production)
-```bash
-VITE_API_URL=https://biajez-ah0g.onrender.com
-```
-
----
-
-## Deployment
-
-### Backend (Render)
-- Build: `pip install -r requirements.txt`
-- Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1`
-
-### Frontend (Vercel)
-- Root: `frontend`
-- Build: `npm run build`
-- Output: `dist`
-
-### WhatsApp Webhook
-- URL: `https://biajez-ah0g.onrender.com/whatsapp/webhook`
-- Verify Token: configurado en WHATSAPP_VERIFY_TOKEN
-- Eventos: `messages`
 
 ---
 
@@ -136,13 +147,26 @@ VITE_API_URL=https://biajez-ah0g.onrender.com
 ```
 Biajez/
 ├── app/
-│   ├── api/           # Endpoints (routes, webhooks, whatsapp)
-│   ├── ai/            # Agente AI con tools
-│   ├── db/            # Database config
-│   ├── models/        # SQLAlchemy models
-│   └── services/      # Business logic
-├── frontend/          # React app
-├── tickets/           # Tickets HTML generados
+│   ├── api/              # Endpoints
+│   │   ├── routes.py     # API REST
+│   │   └── whatsapp_meta.py  # WhatsApp webhook
+│   ├── ai/
+│   │   └── agent.py      # AI Agent con tools
+│   ├── db/
+│   │   └── database.py   # SQLAlchemy config
+│   ├── models/
+│   │   └── models.py     # Modelos DB + DTOs
+│   └── services/
+│       ├── flight_engine.py    # Busqueda vuelos
+│       ├── hotel_engine.py     # Busqueda hoteles
+│       ├── booking_execution.py # Reservaciones
+│       ├── itinerary_service.py # Itinerarios
+│       ├── baggage_service.py   # Equipaje
+│       ├── checkin_service.py   # Check-in
+│       ├── visa_service.py      # Visa
+│       ├── price_alert_service.py # Alertas
+│       ├── scheduler_service.py  # Background jobs
+│       └── push_notification_service.py # WhatsApp push
 ├── requirements.txt
 ├── Procfile
 └── render.yaml
@@ -150,14 +174,35 @@ Biajez/
 
 ---
 
-## Documentacion Adicional
+## Deployment (Render)
 
-- `DEPLOYMENT.md` - Guia de deployment completa
-- `SISTEMA_COMPLETO.md` - Estado del sistema
-- `TESTING_GUIDE.md` - Guia de pruebas
+```yaml
+# render.yaml
+services:
+  - type: web
+    name: biajez
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+**WhatsApp Webhook:**
+- URL: `https://biajez.onrender.com/v1/whatsapp/webhook`
+- Verify Token: configurado en `WHATSAPP_VERIFY_TOKEN`
+- Eventos: `messages`
 
 ---
 
-## Contacto
+## Documentacion
 
-WhatsApp: +52 1 56 5186 1011
+| Archivo | Contenido |
+|---------|-----------|
+| `DEPLOYMENT.md` | Guia de deployment |
+| `TESTING_GUIDE.md` | Guia de pruebas |
+| `STRIPE_SETUP.md` | Configuracion de pagos |
+
+---
+
+## Autor
+
+Desarrollado con Claude Code
