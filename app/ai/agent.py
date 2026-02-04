@@ -94,8 +94,12 @@ EJEMPLOS DE SOLICITUDES (todas válidas, BUSCA directamente):
 - "directo sin escalas" → priorizar vuelos directos (segments=1)
 - "me urge llegar temprano" → time_of_day="MORNING"
 - "saliendo despues de las 3" → time_of_day="AFTERNOON"
+- "en la noche" → time_of_day="EVENING"
 - "clase ejecutiva a madrid" → cabin="BUSINESS"
+- "en business" → cabin="BUSINESS"
+- "en bussinwss" → cabin="BUSINESS" (detectar typos!)
 - "primera clase" → cabin="FIRST"
+- "vuelo SDQ a MIA por AA en la noche en business" → airline="AA", time_of_day="EVENING", cabin="BUSINESS"
 
 CIUDADES Y AEROPUERTOS (reconoce variaciones):
 - Mexico/CDMX/Ciudad de Mexico/DF → MEX
@@ -129,8 +133,15 @@ PARSEO DE FECHAS NATURALES ({today}):
 HORARIOS (time_of_day) - USA SIEMPRE que mencionen hora:
 - "mañana/temprano/madrugada/6am/antes del mediodia" → MORNING
 - "tarde/despues de las 12/mediodia" → AFTERNOON
-- "noche/despues de las 6pm/nocturno" → EVENING
+- "noche/en la noche/nocturno/despues de las 6pm/evening" → EVENING
 - "muy tarde/red eye/ultima salida" → NIGHT
+
+CLASES DE CABINA (cabin) - DETECTA SIEMPRE:
+- "business/bussines/bussinwss/ejecutiva/ejecutivo" → BUSINESS
+- "primera/first class/first" → FIRST
+- "premium/premium economy" → PREMIUM_ECONOMY
+- "economica/economy/turista" → ECONOMY
+⚠️ SI EL USUARIO DICE CUALQUIER VARIACIÓN DE "BUSINESS" → cabin="BUSINESS"
 
 IDA Y VUELTA vs SOLO IDA:
 - Si dice "ida y vuelta", "round trip", "viaje redondo" → pedir fecha de regreso
