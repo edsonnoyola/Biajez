@@ -683,9 +683,9 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             print(f"🔍 DEBUG booking: offer_id={offer_id}, provider={provider}, price={price}")
             
             try:
-                # MOCK BOOKING FOR TEST FLIGHTS (avoid Duffel 422 errors)
-                # Check if this is a test/simulated flight ID
-                if offer_id and (offer_id.startswith("MOCK_") or offer_id.startswith("DUFFEL::") or offer_id.startswith("AMADEUS::")):
+                # MOCK BOOKING FOR TEST FLIGHTS ONLY
+                # Real Duffel/Amadeus flights should go through the orchestrator
+                if offer_id and offer_id.startswith("MOCK_"):
                     print(f"🧪 Mock flight booking for test ID: {offer_id}")
                     
                     import random
@@ -809,24 +809,46 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     session_manager.save_session(from_number, session)
                     return {"status": "ok"}
 
-                # REAL BOOKING (for production flight IDs)
+                # REAL BOOKING (for production flight IDs - Duffel/Amadeus)
+                print(f"🎫 REAL BOOKING: {offer_id} via {provider}")
                 orchestrator = BookingOrchestrator(db)
                 booking_result = orchestrator.execute_booking(
                     session["user_id"], offer_id, provider, amount
                 )
-                
+
                 pnr = booking_result.get("pnr", "N/A")
-                
-                # Get flight details for better confirmation
-                segments = flight.get("segments", [])
+                ticket_url = booking_result.get("ticket_url", "")
+
+                # Get flight details for confirmation
+                segments = flight_dict.get("segments", [])
                 airline = segments[0].get("carrier_code", "N/A") if segments else "N/A"
-                
-                response_text = f"✅ *¡Reserva confirmada!*\n\n"
-                response_text += f"📝 PNR: {pnr}\n"
-                response_text += f"✈️ {airline}\n"
-                response_text += f"💰 Total: ${amount} USD\n\n"
-                response_text += "📧 Te enviaremos los detalles por email"
-                
+
+                # Extract origin/destination
+                dep_city = segments[0].get("departure_iata", "???") if segments else "???"
+                arr_city = segments[-1].get("arrival_iata", "???") if segments else "???"
+                dep_date = segments[0].get("departure_time", "")[:10] if segments else ""
+
+                response_text = f"✅ *¡VUELO RESERVADO!*\n\n"
+                response_text += f"📝 *PNR:* `{pnr}`\n"
+                response_text += f"✈️ *Aerolínea:* {airline}\n"
+                response_text += f"🛫 *Ruta:* {dep_city} → {arr_city}\n"
+                response_text += f"📅 *Fecha:* {dep_date}\n"
+                response_text += f"💰 *Total:* ${amount} USD\n\n"
+                response_text += "✨ _Reserva REAL confirmada en la aerolínea_\n"
+                if ticket_url:
+                    response_text += f"🎫 Ticket: {ticket_url}"
+
+                # Store last booking for context
+                session["last_booking"] = {
+                    "type": "vuelo",
+                    "origin": dep_city,
+                    "destination": arr_city,
+                    "checkin": dep_date,
+                    "checkout": None,
+                    "dates": dep_date,
+                    "pnr": pnr
+                }
+
                 session["selected_flight"] = None
                 session["pending_flights"] = []
                 session_manager.save_session(from_number, session)
@@ -834,14 +856,23 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             except Exception as e:
                 error_msg = str(e)
                 print(f"❌ Booking error: {error_msg}")
-                
+
                 if "offer_no_longer_available" in error_msg or "price_changed" in error_msg:
                     response_text = "⚠️ *Tarifa expirada*\n\n"
                     response_text += "Esa oferta ya no está disponible (el precio cambió o se agotó).\n"
                     response_text += "Por favor busca el vuelo nuevamente para obtener el precio actualizado."
+                elif "insufficient_balance" in error_msg.lower() or "balance" in error_msg.lower():
+                    response_text = "💰 *Balance insuficiente*\n\n"
+                    response_text += "No hay fondos suficientes para completar esta reserva.\n"
+                    response_text += "El administrador debe agregar fondos en Duffel."
+                elif "passenger" in error_msg.lower() or "invalid" in error_msg.lower():
+                    response_text = "⚠️ *Datos incompletos*\n\n"
+                    response_text += "Necesito más información para reservar.\n"
+                    response_text += "Por favor actualiza tu perfil con: nombre, fecha de nacimiento y pasaporte."
                 else:
                     response_text = "❌ *Error en la reserva*\n\n"
                     response_text += "Hubo un problema procesando tu solicitud.\n"
+                    response_text += f"Detalle: {error_msg[:100]}\n"
                     response_text += "Por favor intenta buscar y reservar nuevamente."
 
             
