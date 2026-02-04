@@ -410,12 +410,30 @@ class BookingOrchestrator:
             }
             
             ticket_url = TicketGenerator.generate_html_ticket(
-                pnr, 
-                f"{profile.legal_first_name} {profile.legal_last_name}", 
+                pnr,
+                f"{profile.legal_first_name} {profile.legal_last_name}",
                 real_flight_data,  # ✅ REAL DATA from Duffel
                 amount
             )
-            
+
+            # Send email confirmation
+            try:
+                from app.services.email_service import EmailService
+                email_data = {
+                    "pnr": pnr,
+                    "departure_city": departure_city or "N/A",
+                    "arrival_city": arrival_city or "N/A",
+                    "departure_date": str(departure_date) if departure_date else "N/A",
+                    "passenger_name": f"{profile.legal_first_name} {profile.legal_last_name}",
+                    "total_amount": str(amount),
+                    "currency": "USD"
+                }
+                if profile.email and "@whatsapp.temp" not in profile.email:
+                    EmailService.send_booking_confirmation(profile.email, email_data, "flight")
+                    print(f"📧 Email enviado a {profile.email}")
+            except Exception as email_error:
+                print(f"⚠️ Error enviando email (no crítico): {email_error}")
+
             return {"pnr": pnr, "ticket_number": ticket_number, "ticket_url": ticket_url}
             
         except Exception as e:

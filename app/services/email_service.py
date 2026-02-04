@@ -38,8 +38,10 @@ class EmailService:
                 html_content = EmailService._generate_hotel_email(booking_data)
             
             # Send email using Resend
+            # Use onboarding@resend.dev for testing until domain is verified
+            from_email = os.getenv("RESEND_FROM_EMAIL", "Biajez <onboarding@resend.dev>")
             params = {
-                "from": "Biajez <confirmations@biajez.com>",  # Change to your domain
+                "from": from_email,
                 "to": [to_email],
                 "subject": subject,
                 "html": html_content,
