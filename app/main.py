@@ -174,3 +174,60 @@ def get_scheduler_status():
     return {
         "jobs": scheduler_service.get_jobs_status()
     }
+
+
+# ============================================
+# ADMIN ENDPOINTS (Protected)
+# ============================================
+ADMIN_SECRET = os.getenv("ADMIN_SECRET", "biajez_admin_2026")
+
+@app.post("/admin/restart")
+def admin_restart(secret: str):
+    """
+    Restart the server (Render will auto-restart on exit).
+    Usage: curl -X POST "https://biajez.onrender.com/admin/restart?secret=YOUR_SECRET"
+    """
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+
+    import sys
+    import threading
+
+    def delayed_exit():
+        import time
+        time.sleep(1)
+        print("🔄 Admin restart requested - Exiting process...")
+        sys.exit(0)
+
+    # Exit in background so we can return response first
+    threading.Thread(target=delayed_exit, daemon=True).start()
+
+    return {"status": "ok", "message": "Server will restart in 1 second"}
+
+
+@app.get("/admin/health")
+def admin_health():
+    """Health check with system info"""
+    import platform
+    return {
+        "status": "healthy",
+        "python": platform.python_version(),
+        "system": platform.system(),
+        "duffel_configured": bool(os.getenv("DUFFEL_ACCESS_TOKEN")),
+        "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
+        "whatsapp_configured": bool(os.getenv("WHATSAPP_ACCESS_TOKEN")),
+        "redis_configured": bool(os.getenv("REDIS_URL")),
+    }
+
+
+@app.get("/admin/logs")
+def admin_logs(secret: str, lines: int = 50):
+    """Get recent application logs (if available)"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+
+    # Return scheduler job status as proxy for logs
+    return {
+        "scheduler_jobs": scheduler_service.get_jobs_status(),
+        "message": "Full logs available in Render Dashboard"
+    }
