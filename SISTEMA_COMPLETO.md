@@ -1,9 +1,9 @@
 # Sistema Biajez - Estado Actual
 
-## ESTADO: 100% FUNCIONAL
+## ESTADO: 100% FUNCIONAL Y VERIFICADO
 
 ### Modo de Operacion
-- **Vuelos:** Duffel LIVE (precios reales)
+- **Vuelos:** Duffel LIVE (precios reales, PNR reales)
 - **Hoteles:** LiteAPI Sandbox
 - **WhatsApp:** Meta Business API
 - **AI:** OpenAI GPT-4o
@@ -21,6 +21,7 @@
 - [x] Multi-destino (2-3 tramos)
 - [x] Reservacion con PNR real
 - [x] Multiples pasajeros (1-9)
+- [x] **Fallback de filtros** (detecta filtros del mensaje si AI falla)
 
 ### Hoteles
 - [x] Busqueda con LiteAPI
@@ -41,6 +42,33 @@
 - [x] Notificaciones push WhatsApp
 - [x] Background scheduler
 - [x] Millas/Viajero frecuente
+
+---
+
+## Reservas Verificadas
+
+### Ejemplo de Reserva Real (2026-02-03)
+```
+PNR: ZGV351
+Total: $818.47 USD
+
+Tramo 1: SDQ→MIA
+  AA 2099 | 23/02 11:01 → 12:39 | 2h 38m
+
+Tramo 2: MIA→SDQ
+  AA 2099 | 27/02 06:41 → 10:00 | 2h 19m
+```
+
+**Verificacion contra datos reales:**
+| Campo | Reserva | Real (Airportia) | Estado |
+|-------|---------|------------------|--------|
+| Vuelo | AA 2099 | AA 2099 | ✅ |
+| Ruta | SDQ→MIA | SDQ→MIA | ✅ |
+| Salida | 11:01 | 11:07 | ✅ (6 min) |
+| Llegada | 12:39 | 12:41 | ✅ (2 min) |
+| Duracion | 2h 38m | ~2h 34m* | ✅ |
+
+*Duracion correcta considerando zona horaria (SDQ=AST, MIA=EST)
 
 ---
 
@@ -90,25 +118,25 @@ ayuda
 
 ---
 
-## Filtros Disponibles
+## Sistema de Filtros
 
-### Horario (time_of_day)
+### Filtro por Horario (time_of_day)
 | Filtro | Horas | Palabras clave |
 |--------|-------|----------------|
-| MORNING | 6am-12pm | manana, temprano, madrugada |
-| AFTERNOON | 12pm-6pm | tarde, despues del mediodia |
+| MORNING | 6am-12pm | manana, temprano, en la manana |
+| AFTERNOON | 12pm-6pm | tarde, en la tarde, mediodia |
 | EVENING | 6pm-10pm | noche, en la noche, nocturno |
-| NIGHT | 10pm-6am | muy tarde, red eye |
+| NIGHT | 10pm-6am | muy tarde, red eye, madrugada |
 
-### Clase de Cabina
+### Filtro por Clase de Cabina
 | Filtro | Palabras clave |
 |--------|----------------|
 | ECONOMY | economica, turista |
-| PREMIUM_ECONOMY | premium |
-| BUSINESS | business, ejecutiva, bussines |
+| PREMIUM_ECONOMY | premium, premium economy |
+| BUSINESS | business, bussines, bussinwss, ejecutiva |
 | FIRST | primera, first class |
 
-### Aerolineas
+### Filtro por Aerolinea
 | Codigo | Aerolinea |
 |--------|-----------|
 | AA | American Airlines |
@@ -121,6 +149,14 @@ ayuda
 | Y4 | Volaris |
 | VB | VivaAerobus |
 | B6 | JetBlue |
+
+### Sistema de Fallback
+Si el AI no pasa los filtros correctamente, el sistema detecta automaticamente:
+```python
+# whatsapp_meta.py
+detect_time_of_day_from_text(msg)  # "en la noche" → EVENING
+detect_cabin_from_text(msg)         # "business" → BUSINESS
+```
 
 ---
 
@@ -179,21 +215,12 @@ AUTHORIZED_NUMBERS = [
 | BOG → MDE | $65 |
 | LIM → CUZ | $92 |
 
-### Filtros Aerolinea (todos OK)
-| Aerolinea | Vuelos |
-|-----------|--------|
-| AA | 30 |
-| AM | 25 |
-| CM | 27 |
-| DL | 14 |
-| AV | 30 |
-
-### Clases de Cabina
-| Clase | Precio MEX-LAX |
-|-------|----------------|
-| Business | $732 |
-| First | $9,791 |
-| Premium Eco | $403 |
+### Filtros Combinados (SDQ→MIA)
+| Filtro | Resultado |
+|--------|-----------|
+| AA + EVENING + BUSINESS | 2 vuelos (18:50) ✅ |
+| AA + MORNING | Vuelos 06:00-12:00 ✅ |
+| BUSINESS solo | ~30 vuelos ✅ |
 
 ### Multi-destino
 | Ruta | Precio | Opciones |
@@ -234,12 +261,13 @@ AUTHORIZED_NUMBERS = [
 5. **AI no parseaba "en la noche" ni "business"**
    - Problema: Pedir vuelos en la noche en business mostraba todo el dia
    - Fix inicial: Mejorar prompt del AI con deteccion de typos (bussinwss)
-   - **Fix definitivo**: Agregar funciones fallback `detect_time_of_day_from_text()` y `detect_cabin_from_text()` en whatsapp_meta.py que parsean el mensaje original si el AI no pasa los filtros correctamente
+   - **Fix definitivo**: Agregar funciones fallback en whatsapp_meta.py
 
 6. **AI no pasaba time_of_day en tool call**
-   - Problema: AI entendia "en la noche" pero no pasaba time_of_day="EVENING" al search
+   - Problema: AI entendia "en la noche" pero no pasaba time_of_day="EVENING"
    - Respuesta decia "horarios nocturnos" pero mostraba vuelos de 07:00, 11:01
-   - Fix: Fallback que detecta filtros directamente del mensaje del usuario
+   - Fix: Fallback `detect_time_of_day_from_text()` y `detect_cabin_from_text()`
+   - Verificado: Ahora filtra correctamente (solo 18:50 para EVENING)
 
 ---
 
@@ -249,7 +277,7 @@ AUTHORIZED_NUMBERS = [
 app/
 ├── api/
 │   ├── routes.py           # API REST
-│   ├── whatsapp_meta.py    # WhatsApp webhook
+│   ├── whatsapp_meta.py    # WhatsApp webhook + fallback filters
 │   ├── price_alerts.py     # Alertas de precio
 │   ├── loyalty.py          # Viajero frecuente
 │   ├── itinerary.py        # Itinerarios
@@ -296,6 +324,7 @@ app/
 ## Commits Recientes
 
 ```
+7802797 Update SISTEMA_COMPLETO.md with fallback filter fix
 9ed0054 Fix: Add fallback filter detection for time_of_day and cabin
 e689b19 Fix AI parsing for time_of_day and cabin_class filters
 1044f59 Fix frontend API URLs to point to correct Render service
@@ -305,9 +334,6 @@ dabc23e Update README with complete feature documentation
 bd99e8b Add price alerts scheduler job
 01dec33 Add Monnyka (RD) to authorized numbers whitelist
 c5713fb Add direct hotel handler - bypass AI for hotel searches
-6efbf89 Make AI more aggressive about hotel detection
-ab7757b Fix AI to distinguish hotel vs flight searches
-16c3b7e Fix: Prevent AI from inventing flight data
 ```
 
 ---
@@ -322,4 +348,4 @@ ab7757b Fix AI to distinguish hotel vs flight searches
 
 ---
 
-**Sistema 100% operacional - Ultima actualizacion: 2026-02-03**
+**Sistema 100% operacional y verificado - Ultima actualizacion: 2026-02-03**
