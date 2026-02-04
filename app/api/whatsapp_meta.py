@@ -43,6 +43,79 @@ def parse_iso_duration(duration_str: str) -> str:
         return " ".join(parts) if parts else duration_str
 
     return duration_str
+
+
+def detect_time_of_day_from_text(text: str) -> str:
+    """
+    Detect time_of_day filter from natural language.
+    Returns: MORNING, AFTERNOON, EVENING, NIGHT, or ANY
+    """
+    text_lower = text.lower()
+
+    # EVENING: 18:00-22:00
+    evening_keywords = [
+        "en la noche", "noche", "nocturno", "evening",
+        "despues de las 6", "despues de las 18", "6pm", "7pm", "8pm", "9pm"
+    ]
+    for kw in evening_keywords:
+        if kw in text_lower:
+            return "EVENING"
+
+    # NIGHT: 22:00-06:00 (red eye)
+    night_keywords = ["muy tarde", "red eye", "medianoche", "madrugada"]
+    for kw in night_keywords:
+        if kw in text_lower:
+            return "NIGHT"
+
+    # MORNING: 06:00-12:00
+    morning_keywords = [
+        "en la manana", "mañana", "temprano", "morning",
+        "6am", "7am", "8am", "9am", "10am", "11am", "antes del mediodia"
+    ]
+    for kw in morning_keywords:
+        if kw in text_lower:
+            return "MORNING"
+
+    # AFTERNOON: 12:00-18:00
+    afternoon_keywords = [
+        "en la tarde", "tarde", "afternoon", "mediodia",
+        "12pm", "1pm", "2pm", "3pm", "4pm", "5pm", "despues del mediodia"
+    ]
+    for kw in afternoon_keywords:
+        if kw in text_lower:
+            return "AFTERNOON"
+
+    return "ANY"
+
+
+def detect_cabin_from_text(text: str) -> str:
+    """
+    Detect cabin class from natural language.
+    Returns: ECONOMY, PREMIUM_ECONOMY, BUSINESS, FIRST
+    """
+    text_lower = text.lower()
+
+    # BUSINESS
+    business_keywords = ["business", "bussines", "bussinwss", "ejecutiva", "ejecutivo", "clase ejecutiva"]
+    for kw in business_keywords:
+        if kw in text_lower:
+            return "BUSINESS"
+
+    # FIRST
+    first_keywords = ["primera clase", "first class", "primera"]
+    for kw in first_keywords:
+        if kw in text_lower:
+            return "FIRST"
+
+    # PREMIUM_ECONOMY
+    premium_keywords = ["premium economy", "premium"]
+    for kw in premium_keywords:
+        if kw in text_lower:
+            return "PREMIUM_ECONOMY"
+
+    return "ECONOMY"
+
+
 agent = AntigravityAgent()
 flight_aggregator = FlightAggregator()
 
@@ -1757,16 +1830,40 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 function_name = tool_call.function.name
                 arguments = json.loads(tool_call.function.arguments)
                 tool_result = None
-                
+
+                # DEBUG: Log what arguments AI is passing
+                print(f"🔍 AI TOOL CALL: {function_name}")
+                print(f"🔍 AI ARGUMENTS: {json.dumps(arguments, indent=2)}")
+
                 if function_name == "search_hybrid_flights":
+                    # Get filters from AI arguments
+                    time_filter = arguments.get("time_of_day", "ANY")
+                    cabin_filter = arguments.get("cabin", "ECONOMY")
+                    airline_filter = arguments.get("airline")
+
+                    # CRITICAL FALLBACK: If AI didn't detect filters, parse from user message
+                    if time_filter == "ANY":
+                        detected_time = detect_time_of_day_from_text(incoming_msg)
+                        if detected_time != "ANY":
+                            print(f"🔧 FALLBACK: AI missed time_of_day, detected '{detected_time}' from message")
+                            time_filter = detected_time
+
+                    if cabin_filter == "ECONOMY":
+                        detected_cabin = detect_cabin_from_text(incoming_msg)
+                        if detected_cabin != "ECONOMY":
+                            print(f"🔧 FALLBACK: AI missed cabin, detected '{detected_cabin}' from message")
+                            cabin_filter = detected_cabin
+
+                    print(f"⚠️ FLIGHT SEARCH FILTERS - time_of_day={time_filter}, cabin={cabin_filter}, airline={airline_filter}")
+
                     tool_result = await flight_aggregator.search_hybrid_flights(
                         arguments["origin"],
                         arguments["destination"],
                         arguments["date"],
                         arguments.get("return_date"),
-                        arguments.get("cabin", "ECONOMY"),
-                        arguments.get("airline"),
-                        arguments.get("time_of_day", "ANY"),
+                        cabin_filter,
+                        airline_filter,
+                        time_filter,
                         arguments.get("passengers", 1)  # num_passengers
                     )
                     tool_result = [f.dict() for f in tool_result]
