@@ -1,0 +1,17 @@
+name: Keep Render Alive
+
+on:
+  schedule:
+    # Ping every 5 minutes
+    - cron: '*/5 * * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Server
+        run: |
+          echo "Pinging Biajez server..."
+          curl -s -o /dev/null -w "Status: %{http_code}\n" https://biajez-d08x.onrender.com/health || true
+          echo "Done!"

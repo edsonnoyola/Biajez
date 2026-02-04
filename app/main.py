@@ -205,6 +205,12 @@ def read_root():
     return {"message": "Welcome to Biatriz API"}
 
 
+@app.get("/health")
+def health_check():
+    """Health check endpoint for keep-alive pings"""
+    return {"status": "ok", "service": "biajez"}
+
+
 @app.get("/scheduler/status")
 def get_scheduler_status():
     """Get status of all scheduled background jobs"""
