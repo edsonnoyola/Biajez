@@ -44,60 +44,97 @@ models.Base.metadata.create_all(bind=engine)
 
 # Run migrations for new columns (safe to run multiple times)
 def run_migrations():
-    """Add missing columns to database"""
-    from sqlalchemy import text
-    migrations = [
-        "ALTER TABLE trips ADD COLUMN IF NOT EXISTS baggage_services TEXT;",
-        "ALTER TABLE trips ADD COLUMN IF NOT EXISTS checkin_status VARCHAR DEFAULT 'NOT_CHECKED_IN';",
-        "ALTER TABLE trips ADD COLUMN IF NOT EXISTS boarding_pass_url VARCHAR;",
-        "ALTER TABLE trips ADD COLUMN IF NOT EXISTS duffel_order_id VARCHAR;",
-        "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS extra_data TEXT;",
-        # Price alerts table
-        """CREATE TABLE IF NOT EXISTS price_alerts (
-            id SERIAL PRIMARY KEY,
-            user_id VARCHAR,
-            phone_number VARCHAR,
-            search_type VARCHAR,
-            origin VARCHAR,
-            destination VARCHAR,
-            departure_date VARCHAR,
-            return_date VARCHAR,
-            target_price FLOAT,
-            initial_price FLOAT,
-            lowest_price FLOAT,
-            current_price FLOAT,
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_checked_at TIMESTAMP,
-            notified_at TIMESTAMP,
-            notification_count INTEGER DEFAULT 0,
-            extra_data TEXT
-        );""",
-        "CREATE INDEX IF NOT EXISTS idx_price_alerts_user ON price_alerts(user_id);",
-        # Loyalty programs table
-        """CREATE TABLE IF NOT EXISTS loyalty_programs (
-            id SERIAL PRIMARY KEY,
-            user_id VARCHAR,
-            airline_code VARCHAR,
-            program_name VARCHAR,
-            member_number VARCHAR,
-            tier_status VARCHAR,
-            extra_data TEXT
-        );""",
-        "CREATE INDEX IF NOT EXISTS idx_loyalty_user ON loyalty_programs(user_id);",
-    ]
+    """Add missing columns to database - SQLite compatible"""
+    from sqlalchemy import text, inspect
+
+    def column_exists(conn, table, column):
+        """Check if column exists in table (SQLite compatible)"""
+        try:
+            result = conn.execute(text(f"PRAGMA table_info({table})"))
+            columns = [row[1] for row in result.fetchall()]
+            return column in columns
+        except:
+            return False
+
+    def table_exists(conn, table):
+        """Check if table exists (SQLite compatible)"""
+        try:
+            result = conn.execute(text(
+                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'"
+            ))
+            return result.fetchone() is not None
+        except:
+            return False
+
     try:
         with engine.connect() as conn:
-            for sql in migrations:
-                try:
-                    conn.execute(text(sql))
-                    conn.commit()
-                except Exception as e:
-                    if "already exists" not in str(e).lower():
-                        print(f"Migration warning: {e}")
-        print("✅ Database migrations complete")
+            # Add columns to trips table
+            if not column_exists(conn, 'trips', 'baggage_services'):
+                conn.execute(text("ALTER TABLE trips ADD COLUMN baggage_services TEXT"))
+                conn.commit()
+            if not column_exists(conn, 'trips', 'checkin_status'):
+                conn.execute(text("ALTER TABLE trips ADD COLUMN checkin_status VARCHAR DEFAULT 'NOT_CHECKED_IN'"))
+                conn.commit()
+            if not column_exists(conn, 'trips', 'boarding_pass_url'):
+                conn.execute(text("ALTER TABLE trips ADD COLUMN boarding_pass_url VARCHAR"))
+                conn.commit()
+            if not column_exists(conn, 'trips', 'duffel_order_id'):
+                conn.execute(text("ALTER TABLE trips ADD COLUMN duffel_order_id VARCHAR"))
+                conn.commit()
+
+            # Add column to notifications table
+            if not column_exists(conn, 'notifications', 'extra_data'):
+                conn.execute(text("ALTER TABLE notifications ADD COLUMN extra_data TEXT"))
+                conn.commit()
+
+            # Create price_alerts table (SQLite compatible)
+            if not table_exists(conn, 'price_alerts'):
+                conn.execute(text("""
+                    CREATE TABLE price_alerts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id VARCHAR,
+                        phone_number VARCHAR,
+                        search_type VARCHAR,
+                        origin VARCHAR,
+                        destination VARCHAR,
+                        departure_date VARCHAR,
+                        return_date VARCHAR,
+                        target_price FLOAT,
+                        initial_price FLOAT,
+                        lowest_price FLOAT,
+                        current_price FLOAT,
+                        is_active BOOLEAN DEFAULT 1,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_checked_at TIMESTAMP,
+                        notified_at TIMESTAMP,
+                        notification_count INTEGER DEFAULT 0,
+                        extra_data TEXT
+                    )
+                """))
+                conn.commit()
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_price_alerts_user ON price_alerts(user_id)"))
+                conn.commit()
+
+            # Create loyalty_programs table (SQLite compatible)
+            if not table_exists(conn, 'loyalty_programs'):
+                conn.execute(text("""
+                    CREATE TABLE loyalty_programs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id VARCHAR,
+                        airline_code VARCHAR,
+                        program_name VARCHAR,
+                        member_number VARCHAR,
+                        tier_status VARCHAR,
+                        extra_data TEXT
+                    )
+                """))
+                conn.commit()
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_loyalty_user ON loyalty_programs(user_id)"))
+                conn.commit()
+
+            print("✅ Database migrations complete")
     except Exception as e:
-        print(f"⚠️ Migration skipped: {e}")
+        print(f"⚠️ Migration error: {e}")
 
 run_migrations()
 
