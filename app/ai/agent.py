@@ -40,6 +40,20 @@ class AntigravityAgent:
             if context.get("last_search_type"):
                 active_contexts.append(f"Última búsqueda: {context['last_search_type']}")
 
+            # IMPORTANT: Last booking context for "same dates" references
+            if context.get("last_booking"):
+                lb = context["last_booking"]
+                booking_type = lb.get("type", "reserva")
+                dest = lb.get("destination", "")
+                dates = lb.get("dates", "")
+                checkin = lb.get("checkin", "")
+                checkout = lb.get("checkout", "")
+                active_contexts.append(
+                    f"⚡ ÚLTIMA RESERVA: {booking_type} en {dest}, fechas: {dates} "
+                    f"(checkin={checkin}, checkout={checkout}). "
+                    f"Si el usuario dice 'mismas fechas' o 'las mismas fechas', USA estas fechas."
+                )
+
             if active_contexts:
                 context_str = "\n\n🎯 CONTEXTO ACTIVO:\n" + "\n".join(f"• {c}" for c in active_contexts)
 
@@ -170,6 +184,13 @@ PREFERENCIAS DE AEROLÍNEA (airline):
 - "Spirit" → airline="NK"
 - "Copa" → airline="CM"
 - "Avianca" → airline="AV"
+
+CONTEXTO DE SESIÓN - ¡MUY IMPORTANTE!:
+- "las mismas fechas" / "mismas fechas" / "esas fechas" → USA las fechas de la última búsqueda/reserva
+- "el mismo destino" / "mismo lugar" → USA el destino de la última búsqueda
+- Si reservó hotel del 11 al 14 y pide "vuelo para las mismas fechas" → vuelo del 11 al 14
+- Si buscó vuelo a Cancún y pide "hotel ahí" → hotel en Cancún
+- SIEMPRE recuerda el contexto de la conversación para resolver referencias
 
 REGLA DE ORO: Si tienes origen, destino y fecha → BUSCA INMEDIATAMENTE
 No hagas preguntas innecesarias. El usuario quiere resultados, no interrogatorios.

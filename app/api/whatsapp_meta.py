@@ -555,13 +555,21 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 response_text += "_✨ Reserva de prueba exitosa_\n"
                 response_text += "_En producción se usaría API real de DuffelStays_"
                 
+                # Store last booking info for context (so user can say "same dates" later)
+                session["last_booking"] = {
+                    "type": "hotel",
+                    "destination": hotel.get("location", hotel_name),
+                    "checkin": hotel_dates.get('checkin'),
+                    "checkout": hotel_dates.get('checkout'),
+                    "dates": f"{hotel_dates.get('checkin')} to {hotel_dates.get('checkout')}"
+                }
                 session["selected_hotel"] = None
                 session["hotel_dates"] = None
                 session_manager.save_session(from_number, session)
-                
+
                 send_whatsapp_message(from_number, response_text)
                 return {"status": "ok"}
-            
+
             # Real booking with DuffelStays for production hotels
             # Get profile for guest info
             from app.models.models import Profile
@@ -786,12 +794,21 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     db.commit()
                     print(f"✅ Mock trip saved to DB: {pnr}")
 
+                    # Store last booking info for context (so user can say "same dates" later)
+                    session["last_booking"] = {
+                        "type": "vuelo",
+                        "origin": dep_city,
+                        "destination": arr_city,
+                        "checkin": str(dep_date) if dep_date else None,
+                        "checkout": None,
+                        "dates": str(dep_date) if dep_date else "N/A"
+                    }
                     send_whatsapp_message(from_number, response_text)
                     session.pop("selected_flight", None)
                     session.pop("pending_flights", None)
                     session_manager.save_session(from_number, session)
                     return {"status": "ok"}
-                
+
                 # REAL BOOKING (for production flight IDs)
                 orchestrator = BookingOrchestrator(db)
                 booking_result = orchestrator.execute_booking(
@@ -1808,6 +1825,9 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
         # -----------------------------------
 
         # Build session context for AI - include all relevant state
+        # Get last booking info for context references like "same dates"
+        last_booking = session.get("last_booking", {})
+
         session_context = {
             "pending_hotel_search": session.get("pending_hotel_search"),
             "pending_flights": bool(session.get("pending_flights")),  # True if flights shown
@@ -1818,6 +1838,10 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             "hotel_dates": session.get("hotel_dates"),
             "selected_flight": bool(session.get("selected_flight")),  # True if flight selected
             "selected_hotel": bool(session.get("selected_hotel")),    # True if hotel selected
+            # Context for "same dates" / "same destination" references
+            "last_booking": last_booking,
+            "last_booking_dates": last_booking.get("dates") if last_booking else None,
+            "last_booking_destination": last_booking.get("destination") if last_booking else None,
         }
 
         response_message = await agent.chat(session["messages"], "", session_context)
