@@ -261,12 +261,13 @@ app/
 ## Deployment
 
 ### Render (Backend)
-- URL: https://biajez.onrender.com
+- URL: https://biajez-d08x.onrender.com (NUEVA URL 2026-02-04)
+- Repo: edsonnoyola/Biajez (público)
 - Auto-deploy desde GitHub (main branch)
 - Variables de entorno configuradas en Render Dashboard
 
 ### WhatsApp Webhook
-- URL: https://biajez.onrender.com/v1/whatsapp/webhook
+- URL: https://biajez-d08x.onrender.com/v1/whatsapp/webhook
 - Verify Token: biajez_verify_token_123
 - Configurado en Meta Business Suite
 

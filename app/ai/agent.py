@@ -143,11 +143,14 @@ CLASES DE CABINA (cabin) - DETECTA SIEMPRE:
 - "economica/economy/turista" → ECONOMY
 ⚠️ SI EL USUARIO DICE CUALQUIER VARIACIÓN DE "BUSINESS" → cabin="BUSINESS"
 
-IDA Y VUELTA vs SOLO IDA:
-- Si dice "ida y vuelta", "round trip", "viaje redondo" → pedir fecha de regreso
-- Si dice "solo ida", "one way" → NO incluir return_date
-- Si da DOS fechas → primera=ida, segunda=vuelta
+IDA Y VUELTA vs SOLO IDA - ¡NO PREGUNTES SI ES OBVIO!:
+- "del 14 al 16", "14 al 16", "del 10 al 15 marzo" → ES IDA Y VUELTA, NO PREGUNTES
+- Si da DOS fechas (cualquier formato) → primera=ida, segunda=vuelta, BUSCA DIRECTO
+- "ida y vuelta", "round trip", "viaje redondo" → ida y vuelta
+- "solo ida", "one way" → NO incluir return_date
 - Si solo da UNA fecha y no especifica → ASUMIR solo ida, buscar directamente
+
+⚠️ REGLA CRÍTICA: Si el usuario dice "del X al Y" o "X al Y" = SIEMPRE es ida y vuelta. NUNCA preguntes.
 
 MÚLTIPLES PASAJEROS:
 - "2 adultos", "para 2", "dos personas" → passengers=2
