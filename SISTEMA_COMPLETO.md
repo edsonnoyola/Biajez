@@ -1,74 +1,84 @@
-# Sistema Biajez - Estado Actual
+# Sistema Biajez - Memoria de Sesión
+
+## ARCHIVO A LEER AL INICIO DE CADA SESIÓN
+**Nombre:** `SISTEMA_COMPLETO.md`
+**Ubicación:** `/Users/end/Downloads/Biajez/SISTEMA_COMPLETO.md`
+
+---
 
 ## ESTADO: 100% FUNCIONAL Y VERIFICADO
 
-### Modo de Operacion
+### Modo de Operación
 - **Vuelos:** Duffel LIVE (precios reales, PNR reales)
 - **Hoteles:** LiteAPI Sandbox
-- **WhatsApp:** Meta Business API
-- **AI:** OpenAI GPT-4o
+- **WhatsApp:** Meta Business API (webhook en Render)
+- **AI:** OpenAI GPT-4o con function calling
+- **Backend:** FastAPI en Render (https://biajez.onrender.com)
+- **Frontend:** React + Vite (localhost:5173 o Vercel)
+
+---
+
+## Resumen de Última Sesión (2026-02-03)
+
+### Problema Principal Resuelto
+**Bug:** Usuario pedía "vuelo en la noche en business" pero el sistema mostraba vuelos de todo el día (07:00, 11:01, 15:19) en lugar de solo vuelos nocturnos (18:00-22:00).
+
+**Causa:** El AI reconocía la intención ("horarios nocturnos") pero NO pasaba `time_of_day="EVENING"` en los argumentos del tool call.
+
+**Solución:** Agregué funciones fallback en `whatsapp_meta.py`:
+```python
+detect_time_of_day_from_text(msg)  # "en la noche" → EVENING
+detect_cabin_from_text(msg)         # "business" → BUSINESS
+```
+
+### Verificación del Fix
+```
+Test: "vuelo MEX a MIA en la noche en business el 20 febrero"
+AI Arguments: cabin=BUSINESS, time_of_day=EVENING ✅
+Resultado: 122 ofertas → 2 vuelos filtrados (19:00) ✅
+```
+
+### Reserva Verificada contra Datos Reales
+```
+PNR: ZGV351 - $818.47 USD
+AA 2099: SDQ→MIA 11:01→12:39
+Verificado contra Airportia: Datos correctos ✅
+```
 
 ---
 
 ## Features Implementadas
 
 ### Vuelos
-- [x] Busqueda con Duffel LIVE
-- [x] Filtro por aerolinea (AA, CM, AM, DL, AV, etc.)
+- [x] Búsqueda con Duffel LIVE
+- [x] Filtro por aerolínea (AA, CM, AM, DL, AV, etc.)
 - [x] Filtro por horario (MORNING, AFTERNOON, EVENING, NIGHT)
 - [x] Filtro por clase (ECONOMY, PREMIUM_ECONOMY, BUSINESS, FIRST)
 - [x] Vuelos redondos (ida y vuelta)
 - [x] Multi-destino (2-3 tramos)
-- [x] Reservacion con PNR real
-- [x] Multiples pasajeros (1-9)
+- [x] Reservación con PNR real
+- [x] Múltiples pasajeros (1-9)
 - [x] **Fallback de filtros** (detecta filtros del mensaje si AI falla)
 
 ### Hoteles
-- [x] Busqueda con LiteAPI
+- [x] Búsqueda con LiteAPI
 - [x] Duffel Stays (sandbox)
 - [x] Filtro por fechas
-- [x] Reservacion
+- [x] Reservación
 
-### Gestion de Viajes
-- [x] Itinerario (proximo viaje)
+### Gestión de Viajes
+- [x] Itinerario (próximo viaje)
 - [x] Historial (viajes pasados)
 - [x] Equipaje adicional
-- [x] Check-in automatico
+- [x] Check-in automático
 - [x] Recordatorio de check-in
 
 ### Servicios Adicionales
-- [x] Verificacion de visa
+- [x] Verificación de visa
 - [x] Alertas de precio
 - [x] Notificaciones push WhatsApp
-- [x] Background scheduler
+- [x] Background scheduler (APScheduler)
 - [x] Millas/Viajero frecuente
-
----
-
-## Reservas Verificadas
-
-### Ejemplo de Reserva Real (2026-02-03)
-```
-PNR: ZGV351
-Total: $818.47 USD
-
-Tramo 1: SDQ→MIA
-  AA 2099 | 23/02 11:01 → 12:39 | 2h 38m
-
-Tramo 2: MIA→SDQ
-  AA 2099 | 27/02 06:41 → 10:00 | 2h 19m
-```
-
-**Verificacion contra datos reales:**
-| Campo | Reserva | Real (Airportia) | Estado |
-|-------|---------|------------------|--------|
-| Vuelo | AA 2099 | AA 2099 | ✅ |
-| Ruta | SDQ→MIA | SDQ→MIA | ✅ |
-| Salida | 11:01 | 11:07 | ✅ (6 min) |
-| Llegada | 12:39 | 12:41 | ✅ (2 min) |
-| Duracion | 2h 38m | ~2h 34m* | ✅ |
-
-*Duracion correcta considerando zona horaria (SDQ=AST, MIA=EST)
 
 ---
 
@@ -78,7 +88,7 @@ Tramo 2: MIA→SDQ
 ```
 vuelo de MEX a MIA el 15 de febrero
 vuelo MEX a MAD por Aeromexico
-vuelo SDQ a JFK en la manana
+vuelo SDQ a JFK en la mañana
 vuelo MEX a LAX en business
 vuelo SDQ a MIA por AA en la noche en business
 vuelo MEX a CUN del 10 al 15 marzo (redondo)
@@ -123,21 +133,21 @@ ayuda
 ### Filtro por Horario (time_of_day)
 | Filtro | Horas | Palabras clave |
 |--------|-------|----------------|
-| MORNING | 6am-12pm | manana, temprano, en la manana |
-| AFTERNOON | 12pm-6pm | tarde, en la tarde, mediodia |
+| MORNING | 6am-12pm | mañana, temprano, en la mañana |
+| AFTERNOON | 12pm-6pm | tarde, en la tarde, mediodía |
 | EVENING | 6pm-10pm | noche, en la noche, nocturno |
 | NIGHT | 10pm-6am | muy tarde, red eye, madrugada |
 
 ### Filtro por Clase de Cabina
 | Filtro | Palabras clave |
 |--------|----------------|
-| ECONOMY | economica, turista |
+| ECONOMY | económica, turista |
 | PREMIUM_ECONOMY | premium, premium economy |
 | BUSINESS | business, bussines, bussinwss, ejecutiva |
 | FIRST | primera, first class |
 
-### Filtro por Aerolinea
-| Codigo | Aerolinea |
+### Filtro por Aerolínea
+| Código | Aerolínea |
 |--------|-----------|
 | AA | American Airlines |
 | AM | Aeromexico |
@@ -150,10 +160,10 @@ ayuda
 | VB | VivaAerobus |
 | B6 | JetBlue |
 
-### Sistema de Fallback
-Si el AI no pasa los filtros correctamente, el sistema detecta automaticamente:
+### Sistema de Fallback (IMPORTANTE)
+Si el AI no pasa los filtros correctamente, el sistema los detecta automáticamente del mensaje original:
 ```python
-# whatsapp_meta.py
+# app/api/whatsapp_meta.py (líneas 46-118)
 detect_time_of_day_from_text(msg)  # "en la noche" → EVENING
 detect_cabin_from_text(msg)         # "business" → BUSINESS
 ```
@@ -162,7 +172,7 @@ detect_cabin_from_text(msg)         # "business" → BUSINESS
 
 ## Scheduler Jobs
 
-| Job | Frecuencia | Descripcion |
+| Job | Frecuencia | Descripción |
 |-----|------------|-------------|
 | process_auto_checkins | 15 min | Procesa check-ins pendientes |
 | check_price_alerts | 6 horas | Verifica precios y notifica |
@@ -173,20 +183,20 @@ detect_cabin_from_text(msg)         # "business" → BUSINESS
 
 ## APIs y Tokens
 
-### Activos
-| API | Estado | Modo |
-|-----|--------|------|
-| Duffel | OK | LIVE |
-| LiteAPI | OK | Sandbox |
-| OpenAI | OK | Production |
-| WhatsApp | OK | Production |
-| Stripe | OK | Test |
+| API | Estado | Modo | Variable de Entorno |
+|-----|--------|------|---------------------|
+| Duffel | OK | LIVE | DUFFEL_ACCESS_TOKEN |
+| LiteAPI | OK | Sandbox | LITEAPI_KEY |
+| OpenAI | OK | Production | OPENAI_API_KEY |
+| WhatsApp | OK | Production | WHATSAPP_ACCESS_TOKEN |
+| Stripe | OK | Test | STRIPE_SECRET_KEY |
 
 ---
 
 ## Usuarios Autorizados
 
 ```python
+# app/api/whatsapp_meta.py
 AUTHORIZED_NUMBERS = [
     "525610016226",  # Admin
     "525572461012",  # User
@@ -196,175 +206,110 @@ AUTHORIZED_NUMBERS = [
 
 ---
 
-## Pruebas Exhaustivas Realizadas
+## Bugs Arreglados (2026-02-03)
 
-### Vuelos Largos/Dificiles
-| Ruta | Precio | Escalas |
-|------|--------|---------|
-| MEX → TYO | $1,106 | Directo |
-| MEX → SYD | $1,748 | 1 |
-| BOG → DXB | $1,235 | 1 |
-| SDQ → FCO | $835 | 1 |
-| SYD → JFK | $1,876 | 1 |
-| EZE → NRT | $1,239 | 1 |
-
-### Vuelos Regionales
-| Ruta | Precio |
-|------|--------|
-| MEX → GDL | $27 |
-| BOG → MDE | $65 |
-| LIM → CUZ | $92 |
-
-### Filtros Combinados - Verificados en WhatsApp
-
-#### Test 1: SDQ→MIA (AA + EVENING + BUSINESS)
-```
-Input: "vuelo SDQ a MIA por AA en la noche en business el 15 febrero"
-Resultado: 55 ofertas → 6 EVENING → 2 AA
-Vuelos: AA 18:50 $795.90, AA 18:50 $849.00 ✅
-```
-
-#### Test 2: MEX→MIA (EVENING + BUSINESS)
-```
-Input: "vuelo MEX a MIA en la noche en business el 20 febrero"
-AI Arguments: cabin=BUSINESS, time_of_day=EVENING ✅
-Resultado: 122 ofertas → 2 EVENING
-Vuelos: AM 19:00 $850.26, AM 19:00 $1058.26 ✅
-```
-
-| Ruta | Filtros | Ofertas | Filtradas | Horario |
-|------|---------|---------|-----------|---------|
-| SDQ→MIA | AA+EVENING+BUSINESS | 55 | 2 | 18:50 ✅ |
-| MEX→MIA | EVENING+BUSINESS | 122 | 2 | 19:00 ✅ |
-| SDQ→MIA | AA+MORNING | 55 | ~10 | 06:00-12:00 ✅ |
-
-### Multi-destino
-| Ruta | Precio | Opciones |
-|------|--------|----------|
-| MEX→MIA→MAD | $882 | 246 |
-| MEX→MIA→JFK→LAX | $1,387 | 80 |
-| BOG→PTY→MIA→MAD | $1,229 | 4,112 |
-
-### Multiples Pasajeros (MEX-CUN)
-| Pax | Total |
-|-----|-------|
-| 1 | $59 |
-| 2 | $119 |
-| 3 | $178 |
-| 4 | $238 |
-
----
-
-## Bugs Arreglados
-
-### 2026-02-03
-
-1. **Filtro aerolinea no funcionaba**
-   - Problema: Pedir AA mostraba Copa
-   - Fix: Agregar filtro real en flight_engine.py (no solo boost de score)
+1. **Filtro aerolínea no funcionaba**
+   - Fix: Filtro real en flight_engine.py (no solo boost de score)
 
 2. **AI inventaba precios falsos**
-   - Problema: Mostraba $250, $270, $290 inventados
-   - Fix: Usar intro simple cuando hay vuelos, no dejar que AI genere texto
+   - Fix: Intro simple cuando hay vuelos, no dejar que AI genere texto
 
 3. **Hoteles confundidos con vuelos**
-   - Problema: AI pensaba que hoteles eran vuelos
    - Fix: Handler directo de hoteles en whatsapp_meta.py
 
 4. **"No autorizado" para Monnyka**
    - Fix: Agregar 18098601748 a AUTHORIZED_NUMBERS
 
 5. **AI no parseaba "en la noche" ni "business"**
-   - Problema: Pedir vuelos en la noche en business mostraba todo el dia
-   - Fix inicial: Mejorar prompt del AI con deteccion de typos (bussinwss)
-   - **Fix definitivo**: Agregar funciones fallback en whatsapp_meta.py
+   - Fix: Mejorar prompt + funciones fallback
 
-6. **AI no pasaba time_of_day en tool call**
-   - Problema: AI entendia "en la noche" pero no pasaba time_of_day="EVENING"
-   - Respuesta decia "horarios nocturnos" pero mostraba vuelos de 07:00, 11:01
+6. **AI no pasaba time_of_day en tool call** ⭐ CRÍTICO
+   - Problema: AI entendía "en la noche" pero no pasaba time_of_day="EVENING"
+   - Respuesta decía "horarios nocturnos" pero mostraba vuelos de 07:00
    - Fix: Fallback `detect_time_of_day_from_text()` y `detect_cabin_from_text()`
-   - **Verificado en WhatsApp:**
-     - MEX→MIA: 122 ofertas → 2 vuelos (19:00) ✅
-     - SDQ→MIA: 55 ofertas → 2 vuelos (18:50) ✅
-     - AI ahora pasa correctamente: `time_of_day="EVENING", cabin="BUSINESS"`
+   - Verificado: 122 ofertas → 2 vuelos (19:00) ✅
 
 ---
 
-## Estructura de Archivos
+## Estructura de Archivos Clave
 
 ```
 app/
 ├── api/
+│   ├── whatsapp_meta.py    # WhatsApp webhook + fallback filters ⭐
 │   ├── routes.py           # API REST
-│   ├── whatsapp_meta.py    # WhatsApp webhook + fallback filters
 │   ├── price_alerts.py     # Alertas de precio
 │   ├── loyalty.py          # Viajero frecuente
 │   ├── itinerary.py        # Itinerarios
-│   ├── visa.py             # Verificacion visa
+│   ├── visa.py             # Verificación visa
 │   ├── checkin.py          # Check-in
 │   └── baggage.py          # Equipaje
 ├── ai/
-│   └── agent.py            # AI con tools
+│   └── agent.py            # AI con tools (GPT-4o)
 ├── models/
-│   └── models.py           # DB models
+│   └── models.py           # DB models (SQLAlchemy)
 └── services/
-    ├── flight_engine.py
+    ├── flight_engine.py    # Motor de búsqueda + filtros
     ├── hotel_engine.py
     ├── booking_execution.py
-    ├── itinerary_service.py
-    ├── baggage_service.py
-    ├── checkin_service.py
-    ├── visa_service.py
-    ├── price_alert_service.py
-    ├── scheduler_service.py
-    ├── loyalty_service.py
-    └── push_notification_service.py
+    ├── scheduler_service.py # APScheduler jobs
+    └── ...
 ```
 
 ---
 
 ## Deployment
 
-### Render
+### Render (Backend)
 - URL: https://biajez.onrender.com
-- Auto-deploy desde GitHub
-- Redis disponible
+- Auto-deploy desde GitHub (main branch)
+- Variables de entorno configuradas en Render Dashboard
 
 ### WhatsApp Webhook
 - URL: https://biajez.onrender.com/v1/whatsapp/webhook
 - Verify Token: biajez_verify_token_123
+- Configurado en Meta Business Suite
 
 ### Frontend
-- URL local: http://localhost:5173
-- API URL: Configurable en .env (localhost o Render)
+- Local: http://localhost:5173
+- Producción: Pendiente deploy a Vercel
+- API URL en `.env`: VITE_API_URL
 
 ---
 
 ## Commits Recientes
 
 ```
+44b68a5 Update docs with WhatsApp filter test results
 fdef882 Update SISTEMA_COMPLETO.md with verified booking and filter docs
 7802797 Update SISTEMA_COMPLETO.md with fallback filter fix
-9ed0054 Fix: Add fallback filter detection for time_of_day and cabin
+9ed0054 Fix: Add fallback filter detection for time_of_day and cabin ⭐
 e689b19 Fix AI parsing for time_of_day and cabin_class filters
 1044f59 Fix frontend API URLs to point to correct Render service
-c5d4347 Update TESTING_GUIDE.md with comprehensive tests
-dabc23e Update README with complete feature documentation
-bd99e8b Add price alerts scheduler job
-01dec33 Add Monnyka (RD) to authorized numbers whitelist
-c5713fb Add direct hotel handler - bypass AI for hotel searches
 ```
 
 ---
 
-## Proximos Pasos (Opcionales)
+## Próximos Pasos (Opcionales)
 
-- [ ] Activar LiteAPI produccion (requiere fondeo)
+- [ ] Activar LiteAPI producción (requiere fondeo)
 - [ ] Activar Amadeus (crear cuenta nueva)
-- [ ] Seleccion de asientos
-- [ ] Pagos con Stripe en produccion
+- [ ] Selección de asientos
+- [ ] Pagos con Stripe en producción
 - [ ] Deploy frontend a Vercel
+- [ ] Monitorear logs en Render para verificar filtros
 
 ---
 
-**Sistema 100% operacional y verificado - Ultima actualizacion: 2026-02-03**
+## Notas para Próxima Sesión
+
+1. **Leer este archivo primero** (`SISTEMA_COMPLETO.md`)
+2. El fix de filtros está en `app/api/whatsapp_meta.py` (funciones `detect_time_of_day_from_text` y `detect_cabin_from_text`)
+3. Si hay problemas de filtros, revisar los logs de Render para ver qué argumentos pasa el AI
+4. El backend local se inicia con: `source .venv/bin/activate && uvicorn app.main:app --host 127.0.0.1 --port 8000`
+5. Los logs locales están en `/tmp/backend.log`
+
+---
+
+**Última actualización: 2026-02-03**
+**Sistema 100% operacional y verificado**
