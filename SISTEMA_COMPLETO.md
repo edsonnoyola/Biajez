@@ -233,7 +233,13 @@ AUTHORIZED_NUMBERS = [
 
 5. **AI no parseaba "en la noche" ni "business"**
    - Problema: Pedir vuelos en la noche en business mostraba todo el dia
-   - Fix: Mejorar prompt del AI con deteccion de typos (bussinwss)
+   - Fix inicial: Mejorar prompt del AI con deteccion de typos (bussinwss)
+   - **Fix definitivo**: Agregar funciones fallback `detect_time_of_day_from_text()` y `detect_cabin_from_text()` en whatsapp_meta.py que parsean el mensaje original si el AI no pasa los filtros correctamente
+
+6. **AI no pasaba time_of_day en tool call**
+   - Problema: AI entendia "en la noche" pero no pasaba time_of_day="EVENING" al search
+   - Respuesta decia "horarios nocturnos" pero mostraba vuelos de 07:00, 11:01
+   - Fix: Fallback que detecta filtros directamente del mensaje del usuario
 
 ---
 
@@ -290,6 +296,7 @@ app/
 ## Commits Recientes
 
 ```
+9ed0054 Fix: Add fallback filter detection for time_of_day and cabin
 e689b19 Fix AI parsing for time_of_day and cabin_class filters
 1044f59 Fix frontend API URLs to point to correct Render service
 c5d4347 Update TESTING_GUIDE.md with comprehensive tests
