@@ -18,32 +18,41 @@
 
 ---
 
-## Resumen de Última Sesión (2026-02-03)
+## Resumen de Última Sesión (2026-02-04)
 
-### Problema Principal Resuelto
-**Bug:** Usuario pedía "vuelo en la noche en business" pero el sistema mostraba vuelos de todo el día (07:00, 11:01, 15:19) en lugar de solo vuelos nocturnos (18:00-22:00).
+### Problemas Resueltos
 
-**Causa:** El AI reconocía la intención ("horarios nocturnos") pero NO pasaba `time_of_day="EVENING"` en los argumentos del tool call.
+**1. Migración a nuevo servicio Render**
+- URL anterior: `https://biajez.onrender.com` (repo incorrecto)
+- URL nueva: `https://biajez-d08x.onrender.com`
+- Repo conectado: `edsonnoyola/Biajez` (público)
 
-**Solución:** Agregué funciones fallback en `whatsapp_meta.py`:
+**2. API Keys con saltos de línea**
+- Error: `Illegal header value ... \n`
+- Solución: Copiar keys sin espacios ni saltos de línea
+
+**3. OpenAI API Key expirada**
+- Error 401: `Incorrect API key provided`
+- Solución: Generar nueva key en platform.openai.com
+
+**4. AI preguntaba cosas obvias**
+- Bug: Usuario decía "del 14 al 16" y el AI preguntaba "¿Es ida y vuelta?"
+- Causa: El prompt no tenía regla explícita para patrón "del X al Y"
+- Solución: Agregué regla en `app/ai/agent.py`:
 ```python
-detect_time_of_day_from_text(msg)  # "en la noche" → EVENING
-detect_cabin_from_text(msg)         # "business" → BUSINESS
+⚠️ REGLA CRÍTICA: Si el usuario dice "del X al Y" o "X al Y" = SIEMPRE es ida y vuelta. NUNCA preguntes.
 ```
 
-### Verificación del Fix
-```
-Test: "vuelo MEX a MIA en la noche en business el 20 febrero"
-AI Arguments: cabin=BUSINESS, time_of_day=EVENING ✅
-Resultado: 122 ofertas → 2 vuelos filtrados (19:00) ✅
-```
+### Pruebas Automatizadas Pasadas
+| Test | Entrada | Resultado |
+|------|---------|-----------|
+| 1 | `vuelo de mex a cun del 14 al 16 de feb` | ✅ `return_date: 2026-02-16` |
+| 2 | `vuelo sdq a mia en business el 20 feb` | ✅ `cabin: BUSINESS` |
+| 3 | `vuelo mex a mia en la noche por AA el 25 feb` | ✅ `EVENING` + `airline: AA` |
 
-### Reserva Verificada contra Datos Reales
-```
-PNR: ZGV351 - $818.47 USD
-AA 2099: SDQ→MIA 11:01→12:39
-Verificado contra Airportia: Datos correctos ✅
-```
+### Sesión Anterior (2026-02-03)
+- Fix de filtros fallback: `detect_time_of_day_from_text()`, `detect_cabin_from_text()`
+- Reserva verificada: PNR ZGV351, AA 2099 SDQ→MIA
 
 ---
 
@@ -312,5 +321,6 @@ e689b19 Fix AI parsing for time_of_day and cabin_class filters
 
 ---
 
-**Última actualización: 2026-02-03**
+**Última actualización: 2026-02-04**
 **Sistema 100% operacional y verificado**
+**Nueva URL Render: https://biajez-d08x.onrender.com**
