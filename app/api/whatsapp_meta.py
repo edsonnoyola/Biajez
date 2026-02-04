@@ -640,16 +640,44 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 response_text += "Contacta al administrador para solicitar acceso."
                 send_whatsapp_message(from_number, response_text)
                 return {"status": "ok"}
-            
+
+            # Check if profile is complete for REAL bookings
+            from app.models.models import Profile
+            from datetime import datetime as dt
+            profile = db.query(Profile).filter(Profile.user_id == session["user_id"]).first()
+
+            # Validate profile has real data (not default values)
+            profile_complete = (
+                profile and
+                profile.legal_first_name and
+                profile.legal_first_name != "WhatsApp" and
+                profile.legal_last_name and
+                profile.dob and
+                profile.email and
+                "@whatsapp.temp" not in profile.email
+            )
+
             flight = session["selected_flight"]
             offer_id = flight.get("offer_id")
+
+            # For REAL Duffel/Amadeus bookings, require complete profile
+            is_real_booking = offer_id and (offer_id.startswith("DUFFEL::") or offer_id.startswith("AMADEUS::"))
+
+            if is_real_booking and not profile_complete:
+                response_text = "⚠️ *Perfil incompleto*\n\n"
+                response_text += "Para reservar vuelos reales necesito tus datos:\n"
+                response_text += "• Nombre completo\n"
+                response_text += "• Email\n"
+                response_text += "• Fecha de nacimiento\n\n"
+                response_text += "Escribe *registrar* para completar tu perfil.\n\n"
+                response_text += "_Tu vuelo quedará guardado y podrás confirmarlo después._"
+                send_whatsapp_message(from_number, response_text)
+                return {"status": "ok"}
+
             provider = flight.get("provider")
             amount = float(flight.get("price", 0))
-            
-            # Create profile if needed
-            from app.models.models import Profile
-            from datetime import datetime as dt  # Explicit import to avoid any shadowing
-            profile = db.query(Profile).filter(Profile.user_id == session["user_id"]).first()
+
+            # Create basic profile only for MOCK bookings (testing)
             if not profile:
                 profile = Profile(
                     user_id=session["user_id"],
@@ -892,6 +920,211 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             response_text = "❌ *Reserva cancelada*\n\n"
             response_text += "Puedes buscar otro vuelo u hotel cuando quieras."
 
+            send_whatsapp_message(from_number, response_text)
+            return {"status": "ok"}
+
+        # ============================================
+        # PERFIL DE USUARIO - Comandos
+        # ============================================
+
+        # Ver perfil actual
+        if any(keyword in msg_lower for keyword in ['mi perfil', 'ver perfil', 'mis datos', 'perfil']):
+            from app.models.models import Profile
+            profile = db.query(Profile).filter(Profile.user_id == session["user_id"]).first()
+
+            if not profile or profile.legal_first_name == "WhatsApp":
+                response_text = "👤 *Tu perfil está vacío*\n\n"
+                response_text += "Para reservar vuelos reales necesitas registrar tus datos.\n\n"
+                response_text += "Escribe *registrar* para comenzar."
+            else:
+                is_complete = (
+                    profile.legal_first_name and
+                    profile.legal_first_name != "WhatsApp" and
+                    profile.legal_last_name and
+                    profile.dob and
+                    profile.email
+                )
+
+                response_text = "👤 *Tu Perfil*\n\n"
+                response_text += f"📛 Nombre: {profile.legal_first_name} {profile.legal_last_name}\n"
+                response_text += f"📧 Email: {profile.email or 'No registrado'}\n"
+                response_text += f"📅 Nacimiento: {profile.dob}\n"
+                response_text += f"🚻 Género: {'Masculino' if profile.gender == 'M' else 'Femenino'}\n"
+
+                if profile.passport_number and profile.passport_number != "000000000":
+                    response_text += f"🛂 Pasaporte: ***{profile.passport_number[-4:]}\n"
+                    response_text += f"   País: {profile.passport_country}\n"
+                    response_text += f"   Vence: {profile.passport_expiry}\n"
+                else:
+                    response_text += "🛂 Pasaporte: No registrado\n"
+
+                if is_complete:
+                    response_text += "\n✅ *Perfil completo* - Puedes reservar vuelos"
+                else:
+                    response_text += "\n⚠️ *Perfil incompleto* - Escribe 'registrar' para completar"
+
+            send_whatsapp_message(from_number, response_text)
+            return {"status": "ok"}
+
+        # Iniciar registro de perfil
+        if msg_lower in ['registrar', 'registro', 'actualizar perfil', 'editar perfil']:
+            session["profile_step"] = "nombre"
+            session_manager.save_session(from_number, session)
+
+            response_text = "👤 *Registro de Perfil*\n\n"
+            response_text += "Vamos a registrar tus datos para poder reservar vuelos.\n\n"
+            response_text += "📛 *Paso 1/6:* ¿Cuál es tu *nombre completo* como aparece en tu identificación?\n\n"
+            response_text += "_Ejemplo: Juan Carlos Pérez García_"
+
+            send_whatsapp_message(from_number, response_text)
+            return {"status": "ok"}
+
+        # Procesar pasos del registro de perfil
+        if session.get("profile_step"):
+            from app.models.models import Profile
+            from datetime import datetime as dt
+
+            profile = db.query(Profile).filter(Profile.user_id == session["user_id"]).first()
+            if not profile:
+                profile = Profile(
+                    user_id=session["user_id"],
+                    phone_number=from_number,
+                    gender="M"
+                )
+                db.add(profile)
+
+            step = session["profile_step"]
+
+            if step == "nombre":
+                # Parse name
+                parts = incoming_msg.strip().split()
+                if len(parts) >= 2:
+                    profile.legal_first_name = " ".join(parts[:-1])
+                    profile.legal_last_name = parts[-1]
+                else:
+                    profile.legal_first_name = incoming_msg.strip()
+                    profile.legal_last_name = ""
+
+                session["profile_step"] = "email"
+                session_manager.save_session(from_number, session)
+                db.commit()
+
+                response_text = f"✅ Nombre: *{profile.legal_first_name} {profile.legal_last_name}*\n\n"
+                response_text += "📧 *Paso 2/6:* ¿Cuál es tu *email*?\n\n"
+                response_text += "_Aquí recibirás confirmaciones de reserva_"
+
+            elif step == "email":
+                if "@" in incoming_msg and "." in incoming_msg:
+                    profile.email = incoming_msg.strip().lower()
+                    session["profile_step"] = "nacimiento"
+                    db.commit()
+
+                    response_text = f"✅ Email: *{profile.email}*\n\n"
+                    response_text += "📅 *Paso 3/6:* ¿Cuál es tu *fecha de nacimiento*?\n\n"
+                    response_text += "_Formato: DD/MM/AAAA (ejemplo: 15/03/1990)_"
+                else:
+                    response_text = "❌ Email inválido. Por favor ingresa un email válido.\n\n"
+                    response_text += "_Ejemplo: juan@gmail.com_"
+
+            elif step == "nacimiento":
+                try:
+                    # Try different date formats
+                    fecha = incoming_msg.strip().replace("-", "/")
+                    for fmt in ["%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y"]:
+                        try:
+                            profile.dob = dt.strptime(fecha, fmt).date()
+                            break
+                        except:
+                            continue
+
+                    if not profile.dob:
+                        raise ValueError("Fecha inválida")
+
+                    session["profile_step"] = "genero"
+                    db.commit()
+
+                    response_text = f"✅ Nacimiento: *{profile.dob}*\n\n"
+                    response_text += "🚻 *Paso 4/6:* ¿Cuál es tu *género*?\n\n"
+                    response_text += "Responde: *M* (Masculino) o *F* (Femenino)"
+                except:
+                    response_text = "❌ Fecha inválida.\n\n"
+                    response_text += "Por favor usa el formato: *DD/MM/AAAA*\n"
+                    response_text += "_Ejemplo: 15/03/1990_"
+
+            elif step == "genero":
+                genero = incoming_msg.strip().upper()
+                if genero in ["M", "F", "MASCULINO", "FEMENINO", "HOMBRE", "MUJER"]:
+                    profile.gender = "M" if genero in ["M", "MASCULINO", "HOMBRE"] else "F"
+                    session["profile_step"] = "pasaporte"
+                    db.commit()
+
+                    response_text = f"✅ Género: *{'Masculino' if profile.gender == 'M' else 'Femenino'}*\n\n"
+                    response_text += "🛂 *Paso 5/6:* ¿Tienes *pasaporte*?\n\n"
+                    response_text += "Responde *SI* para registrarlo o *NO* para omitir\n"
+                    response_text += "_El pasaporte es necesario para vuelos internacionales_"
+                else:
+                    response_text = "❌ Por favor responde *M* o *F*"
+
+            elif step == "pasaporte":
+                if incoming_msg.strip().lower() in ["si", "sí", "yes", "s"]:
+                    session["profile_step"] = "pasaporte_numero"
+                    response_text = "🛂 *Número de pasaporte:*\n\n"
+                    response_text += "_Ingresa el número de tu pasaporte_"
+                elif incoming_msg.strip().lower() in ["no", "n", "omitir"]:
+                    session["profile_step"] = None
+                    db.commit()
+
+                    response_text = "✅ *¡Perfil registrado!*\n\n"
+                    response_text += f"👤 {profile.legal_first_name} {profile.legal_last_name}\n"
+                    response_text += f"📧 {profile.email}\n"
+                    response_text += f"📅 {profile.dob}\n\n"
+                    response_text += "Ya puedes reservar vuelos nacionales.\n"
+                    response_text += "_Para vuelos internacionales necesitarás pasaporte._"
+                else:
+                    response_text = "Por favor responde *SI* o *NO*"
+
+            elif step == "pasaporte_numero":
+                profile.passport_number = incoming_msg.strip().upper()
+                session["profile_step"] = "pasaporte_pais"
+                db.commit()
+
+                response_text = f"✅ Pasaporte: *{profile.passport_number}*\n\n"
+                response_text += "🌍 *País emisor del pasaporte:*\n\n"
+                response_text += "_Código de 2 letras (MX, US, ES, etc.)_"
+
+            elif step == "pasaporte_pais":
+                profile.passport_country = incoming_msg.strip().upper()[:2]
+                session["profile_step"] = "pasaporte_vencimiento"
+                db.commit()
+
+                response_text = f"✅ País: *{profile.passport_country}*\n\n"
+                response_text += "📅 *Fecha de vencimiento del pasaporte:*\n\n"
+                response_text += "_Formato: DD/MM/AAAA_"
+
+            elif step == "pasaporte_vencimiento":
+                try:
+                    fecha = incoming_msg.strip().replace("-", "/")
+                    for fmt in ["%d/%m/%Y", "%Y/%m/%d"]:
+                        try:
+                            profile.passport_expiry = dt.strptime(fecha, fmt).date()
+                            break
+                        except:
+                            continue
+
+                    session["profile_step"] = None
+                    db.commit()
+
+                    response_text = "✅ *¡Perfil completo!*\n\n"
+                    response_text += f"👤 {profile.legal_first_name} {profile.legal_last_name}\n"
+                    response_text += f"📧 {profile.email}\n"
+                    response_text += f"📅 Nacimiento: {profile.dob}\n"
+                    response_text += f"🛂 Pasaporte: {profile.passport_country} - ***{profile.passport_number[-4:]}\n"
+                    response_text += f"   Vence: {profile.passport_expiry}\n\n"
+                    response_text += "🎉 *Ya puedes reservar vuelos nacionales e internacionales!*"
+                except:
+                    response_text = "❌ Fecha inválida. Usa formato: *DD/MM/AAAA*"
+
+            session_manager.save_session(from_number, session)
             send_whatsapp_message(from_number, response_text)
             return {"status": "ok"}
 
