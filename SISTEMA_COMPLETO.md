@@ -215,12 +215,28 @@ AUTHORIZED_NUMBERS = [
 | BOG → MDE | $65 |
 | LIM → CUZ | $92 |
 
-### Filtros Combinados (SDQ→MIA)
-| Filtro | Resultado |
-|--------|-----------|
-| AA + EVENING + BUSINESS | 2 vuelos (18:50) ✅ |
-| AA + MORNING | Vuelos 06:00-12:00 ✅ |
-| BUSINESS solo | ~30 vuelos ✅ |
+### Filtros Combinados - Verificados en WhatsApp
+
+#### Test 1: SDQ→MIA (AA + EVENING + BUSINESS)
+```
+Input: "vuelo SDQ a MIA por AA en la noche en business el 15 febrero"
+Resultado: 55 ofertas → 6 EVENING → 2 AA
+Vuelos: AA 18:50 $795.90, AA 18:50 $849.00 ✅
+```
+
+#### Test 2: MEX→MIA (EVENING + BUSINESS)
+```
+Input: "vuelo MEX a MIA en la noche en business el 20 febrero"
+AI Arguments: cabin=BUSINESS, time_of_day=EVENING ✅
+Resultado: 122 ofertas → 2 EVENING
+Vuelos: AM 19:00 $850.26, AM 19:00 $1058.26 ✅
+```
+
+| Ruta | Filtros | Ofertas | Filtradas | Horario |
+|------|---------|---------|-----------|---------|
+| SDQ→MIA | AA+EVENING+BUSINESS | 55 | 2 | 18:50 ✅ |
+| MEX→MIA | EVENING+BUSINESS | 122 | 2 | 19:00 ✅ |
+| SDQ→MIA | AA+MORNING | 55 | ~10 | 06:00-12:00 ✅ |
 
 ### Multi-destino
 | Ruta | Precio | Opciones |
@@ -267,7 +283,10 @@ AUTHORIZED_NUMBERS = [
    - Problema: AI entendia "en la noche" pero no pasaba time_of_day="EVENING"
    - Respuesta decia "horarios nocturnos" pero mostraba vuelos de 07:00, 11:01
    - Fix: Fallback `detect_time_of_day_from_text()` y `detect_cabin_from_text()`
-   - Verificado: Ahora filtra correctamente (solo 18:50 para EVENING)
+   - **Verificado en WhatsApp:**
+     - MEX→MIA: 122 ofertas → 2 vuelos (19:00) ✅
+     - SDQ→MIA: 55 ofertas → 2 vuelos (18:50) ✅
+     - AI ahora pasa correctamente: `time_of_day="EVENING", cabin="BUSINESS"`
 
 ---
 
@@ -324,12 +343,12 @@ app/
 ## Commits Recientes
 
 ```
+fdef882 Update SISTEMA_COMPLETO.md with verified booking and filter docs
 7802797 Update SISTEMA_COMPLETO.md with fallback filter fix
 9ed0054 Fix: Add fallback filter detection for time_of_day and cabin
 e689b19 Fix AI parsing for time_of_day and cabin_class filters
 1044f59 Fix frontend API URLs to point to correct Render service
 c5d4347 Update TESTING_GUIDE.md with comprehensive tests
-4b1c6b5 Update SISTEMA_COMPLETO.md with current status
 dabc23e Update README with complete feature documentation
 bd99e8b Add price alerts scheduler job
 01dec33 Add Monnyka (RD) to authorized numbers whitelist
