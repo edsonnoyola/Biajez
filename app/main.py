@@ -257,6 +257,11 @@ def admin_restart(secret: str):
 def admin_health():
     """Health check with system info"""
     import platform
+
+    # Check database
+    db_url = os.getenv("DATABASE_URL", "not_set")
+    db_type = "postgresql" if "postgresql" in db_url else "sqlite" if "sqlite" in db_url else "unknown"
+
     return {
         "status": "healthy",
         "python": platform.python_version(),
@@ -265,6 +270,8 @@ def admin_health():
         "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
         "whatsapp_configured": bool(os.getenv("WHATSAPP_ACCESS_TOKEN")),
         "redis_configured": bool(os.getenv("REDIS_URL")),
+        "database_type": db_type,
+        "database_configured": db_url != "not_set",
     }
 
 

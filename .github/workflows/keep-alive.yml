@@ -13,5 +13,5 @@ jobs:
       - name: Ping Render Server
         run: |
           echo "Pinging Biajez server..."
-          curl -s -o /dev/null -w "Status: %{http_code}\n" https://biajez-d08x.onrender.com/health || true
+          curl -s -o /dev/null -w "Status: %{http_code}\n" https://biajez-ah0g.onrender.com/health || true
           echo "Done!"
