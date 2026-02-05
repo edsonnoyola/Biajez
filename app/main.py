@@ -279,3 +279,44 @@ def admin_logs(secret: str, lines: int = 50):
         "scheduler_jobs": scheduler_service.get_jobs_status(),
         "message": "Full logs available in Render Dashboard"
     }
+
+
+@app.get("/admin/profile/{phone}")
+def admin_get_profile(phone: str, secret: str):
+    """Get profile by phone number"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+
+    from app.db.database import SessionLocal
+    from app.models.models import Profile
+
+    db = SessionLocal()
+    try:
+        # Try different phone formats
+        profile = db.query(Profile).filter(
+            (Profile.phone_number == phone) |
+            (Profile.phone_number == f"52{phone}") |
+            (Profile.phone_number.contains(phone))
+        ).first()
+
+        if not profile:
+            return {"status": "not_found", "phone": phone}
+
+        return {
+            "status": "found",
+            "profile": {
+                "user_id": profile.user_id,
+                "legal_first_name": profile.legal_first_name,
+                "legal_last_name": profile.legal_last_name,
+                "email": profile.email,
+                "phone_number": profile.phone_number,
+                "dob": str(profile.dob) if profile.dob else None,
+                "gender": profile.gender.value if profile.gender else None,
+                "passport_number": profile.passport_number[-4:] if profile.passport_number and len(profile.passport_number) > 4 else profile.passport_number,
+                "passport_country": profile.passport_country,
+                "passport_expiry": str(profile.passport_expiry) if profile.passport_expiry else None,
+                "registration_step": profile.registration_step
+            }
+        }
+    finally:
+        db.close()
