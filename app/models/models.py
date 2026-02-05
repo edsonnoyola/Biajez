@@ -82,6 +82,7 @@ class Profile(Base):
     phone_number = Column(String, nullable=True)
     preferred_seats = Column(String, nullable=True) # Comma-separated list of 3 seats
     preferred_hotels = Column(String, nullable=True) # Comma-separated list of hotels
+    registration_step = Column(String, nullable=True)  # Track registration progress: nombre, email, nacimiento, genero, pasaporte, etc.
 
     loyalty_programs = relationship("LoyaltyProgram", back_populates="user")
 

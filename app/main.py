@@ -132,6 +132,11 @@ def run_migrations():
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_loyalty_user ON loyalty_programs(user_id)"))
                 conn.commit()
 
+            # Add registration_step to profiles table
+            if not column_exists(conn, 'profiles', 'registration_step'):
+                conn.execute(text("ALTER TABLE profiles ADD COLUMN registration_step VARCHAR"))
+                conn.commit()
+
             print("✅ Database migrations complete")
     except Exception as e:
         print(f"⚠️ Migration error: {e}")

@@ -968,10 +968,33 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             send_whatsapp_message(from_number, response_text)
             return {"status": "ok"}
 
+        # ============================================
+        # REGISTRO DE PERFIL (usando base de datos)
+        # ============================================
+        from app.models.models import Profile
+        from datetime import datetime as dt
+
+        # Obtener o crear perfil
+        profile = db.query(Profile).filter(Profile.user_id == session["user_id"]).first()
+
         # Iniciar registro de perfil
         if msg_lower in ['registrar', 'registro', 'actualizar perfil', 'editar perfil']:
-            session["profile_step"] = "nombre"
-            session_manager.save_session(from_number, session)
+            if not profile:
+                profile = Profile(
+                    user_id=session["user_id"],
+                    phone_number=from_number,
+                    legal_first_name="",
+                    legal_last_name="",
+                    gender="M",
+                    dob=dt.strptime("1990-01-01", "%Y-%m-%d").date(),
+                    passport_number="",
+                    passport_expiry=dt.strptime("2030-01-01", "%Y-%m-%d").date(),
+                    passport_country="XX"
+                )
+                db.add(profile)
+
+            profile.registration_step = "nombre"
+            db.commit()
 
             response_text = "👤 *Registro de Perfil*\n\n"
             response_text += "Vamos a registrar tus datos para poder reservar vuelos.\n\n"
@@ -981,21 +1004,9 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             send_whatsapp_message(from_number, response_text)
             return {"status": "ok"}
 
-        # Procesar pasos del registro de perfil
-        if session.get("profile_step"):
-            from app.models.models import Profile
-            from datetime import datetime as dt
-
-            profile = db.query(Profile).filter(Profile.user_id == session["user_id"]).first()
-            if not profile:
-                profile = Profile(
-                    user_id=session["user_id"],
-                    phone_number=from_number,
-                    gender="M"
-                )
-                db.add(profile)
-
-            step = session["profile_step"]
+        # Procesar pasos del registro de perfil (usando DB, no session)
+        if profile and profile.registration_step:
+            step = profile.registration_step
 
             if step == "nombre":
                 # Parse name
@@ -1005,10 +1016,9 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     profile.legal_last_name = parts[-1]
                 else:
                     profile.legal_first_name = incoming_msg.strip()
-                    profile.legal_last_name = ""
+                    profile.legal_last_name = "."
 
-                session["profile_step"] = "email"
-                session_manager.save_session(from_number, session)
+                profile.registration_step = "email"
                 db.commit()
 
                 response_text = f"✅ Nombre: *{profile.legal_first_name} {profile.legal_last_name}*\n\n"
@@ -1018,7 +1028,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             elif step == "email":
                 if "@" in incoming_msg and "." in incoming_msg:
                     profile.email = incoming_msg.strip().lower()
-                    session["profile_step"] = "nacimiento"
+                    profile.registration_step = "nacimiento"
                     db.commit()
 
                     response_text = f"✅ Email: *{profile.email}*\n\n"
@@ -1030,19 +1040,20 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
             elif step == "nacimiento":
                 try:
-                    # Try different date formats
                     fecha = incoming_msg.strip().replace("-", "/")
+                    parsed_date = None
                     for fmt in ["%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y"]:
                         try:
-                            profile.dob = dt.strptime(fecha, fmt).date()
+                            parsed_date = dt.strptime(fecha, fmt).date()
                             break
                         except:
                             continue
 
-                    if not profile.dob:
+                    if not parsed_date:
                         raise ValueError("Fecha inválida")
 
-                    session["profile_step"] = "genero"
+                    profile.dob = parsed_date
+                    profile.registration_step = "genero"
                     db.commit()
 
                     response_text = f"✅ Nacimiento: *{profile.dob}*\n\n"
@@ -1057,7 +1068,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 genero = incoming_msg.strip().upper()
                 if genero in ["M", "F", "MASCULINO", "FEMENINO", "HOMBRE", "MUJER"]:
                     profile.gender = "M" if genero in ["M", "MASCULINO", "HOMBRE"] else "F"
-                    session["profile_step"] = "pasaporte"
+                    profile.registration_step = "pasaporte"
                     db.commit()
 
                     response_text = f"✅ Género: *{'Masculino' if profile.gender == 'M' else 'Femenino'}*\n\n"
@@ -1069,11 +1080,15 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
             elif step == "pasaporte":
                 if incoming_msg.strip().lower() in ["si", "sí", "yes", "s"]:
-                    session["profile_step"] = "pasaporte_numero"
+                    profile.registration_step = "pasaporte_numero"
+                    db.commit()
                     response_text = "🛂 *Número de pasaporte:*\n\n"
                     response_text += "_Ingresa el número de tu pasaporte_"
                 elif incoming_msg.strip().lower() in ["no", "n", "omitir"]:
-                    session["profile_step"] = None
+                    profile.registration_step = None
+                    profile.passport_number = "N/A"
+                    profile.passport_country = "XX"
+                    profile.passport_expiry = dt.strptime("2099-01-01", "%Y-%m-%d").date()
                     db.commit()
 
                     response_text = "✅ *¡Perfil registrado!*\n\n"
@@ -1087,7 +1102,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
             elif step == "pasaporte_numero":
                 profile.passport_number = incoming_msg.strip().upper()
-                session["profile_step"] = "pasaporte_pais"
+                profile.registration_step = "pasaporte_pais"
                 db.commit()
 
                 response_text = f"✅ Pasaporte: *{profile.passport_number}*\n\n"
@@ -1096,7 +1111,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
             elif step == "pasaporte_pais":
                 profile.passport_country = incoming_msg.strip().upper()[:2]
-                session["profile_step"] = "pasaporte_vencimiento"
+                profile.registration_step = "pasaporte_vencimiento"
                 db.commit()
 
                 response_text = f"✅ País: *{profile.passport_country}*\n\n"
@@ -1106,27 +1121,30 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             elif step == "pasaporte_vencimiento":
                 try:
                     fecha = incoming_msg.strip().replace("-", "/")
+                    parsed_date = None
                     for fmt in ["%d/%m/%Y", "%Y/%m/%d"]:
                         try:
-                            profile.passport_expiry = dt.strptime(fecha, fmt).date()
+                            parsed_date = dt.strptime(fecha, fmt).date()
                             break
                         except:
                             continue
 
-                    session["profile_step"] = None
+                    if parsed_date:
+                        profile.passport_expiry = parsed_date
+
+                    profile.registration_step = None
                     db.commit()
 
                     response_text = "✅ *¡Perfil completo!*\n\n"
                     response_text += f"👤 {profile.legal_first_name} {profile.legal_last_name}\n"
                     response_text += f"📧 {profile.email}\n"
                     response_text += f"📅 Nacimiento: {profile.dob}\n"
-                    response_text += f"🛂 Pasaporte: {profile.passport_country} - ***{profile.passport_number[-4:]}\n"
+                    response_text += f"🛂 Pasaporte: {profile.passport_country} - ***{profile.passport_number[-4:] if len(profile.passport_number) > 4 else profile.passport_number}\n"
                     response_text += f"   Vence: {profile.passport_expiry}\n\n"
                     response_text += "🎉 *Ya puedes reservar vuelos nacionales e internacionales!*"
                 except:
                     response_text = "❌ Fecha inválida. Usa formato: *DD/MM/AAAA*"
 
-            session_manager.save_session(from_number, session)
             send_whatsapp_message(from_number, response_text)
             return {"status": "ok"}
 
