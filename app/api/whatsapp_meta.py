@@ -525,7 +525,51 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             return {"status": "ok"}
         
         # ===== PROFILE COMMANDS =====
-        if incoming_msg.lower() in ["mi perfil", "perfil", "preferencias"]:
+        if incoming_msg.lower().strip() in ["mi perfil", "perfil", "ver perfil", "mis datos"]:
+            from app.models.models import Profile
+
+            profile = db.query(Profile).filter(Profile.user_id == session.get("user_id")).first()
+
+            if not profile or not profile.legal_first_name or profile.legal_first_name in ["", "WhatsApp"]:
+                response_text = "👤 *Tu perfil está vacío*\n\n"
+                response_text += "Escribe *registrar* para completar tus datos."
+                send_whatsapp_message(from_number, response_text)
+                return {"status": "ok"}
+
+            # Mostrar datos personales
+            response_text = "👤 *Tu Perfil*\n\n"
+            response_text += f"📛 Nombre: {profile.legal_first_name} {profile.legal_last_name}\n"
+            response_text += f"📧 Email: {profile.email or 'No registrado'}\n"
+            response_text += f"📅 Nacimiento: {profile.dob}\n"
+            response_text += f"🚻 Género: {'Masculino' if str(profile.gender) == 'GenderEnum.M' or str(profile.gender) == 'M' else 'Femenino'}\n"
+
+            if profile.passport_number and profile.passport_number not in ["", "N/A", "000000000"]:
+                passport_display = f"***{profile.passport_number[-4:]}" if len(profile.passport_number) > 4 else profile.passport_number
+                response_text += f"🛂 Pasaporte: {passport_display}\n"
+                response_text += f"   País: {profile.passport_country}\n"
+                response_text += f"   Vence: {profile.passport_expiry}\n"
+
+            # Mostrar preferencias
+            response_text += "\n✈️ *Preferencias de Vuelo*\n"
+            response_text += f"   Asiento: {profile.seat_preference or 'ANY'}\n"
+            response_text += f"   Clase: {profile.flight_class_preference or 'ECONOMY'}\n"
+            if profile.preferred_airline:
+                response_text += f"   Aerolínea: {profile.preferred_airline}\n"
+
+            response_text += f"\n🏨 *Hotel:* {profile.hotel_preference or '4_STAR'}\n"
+
+            # Estado del perfil
+            is_complete = profile.legal_first_name and profile.email and profile.dob
+            if is_complete:
+                response_text += "\n✅ *Perfil completo* - Puedes reservar vuelos"
+            else:
+                response_text += "\n⚠️ Escribe 'registrar' para completar"
+
+            send_whatsapp_message(from_number, response_text)
+            return {"status": "ok"}
+
+        # Solo preferencias
+        if incoming_msg.lower().strip() == "preferencias":
             summary = profile_manager.get_preferences_summary(db, from_number)
             send_whatsapp_message(from_number, summary)
             return {"status": "ok"}
@@ -1116,49 +1160,6 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
             response_text = "❌ *Reserva cancelada*\n\n"
             response_text += "Puedes buscar otro vuelo u hotel cuando quieras."
-
-            send_whatsapp_message(from_number, response_text)
-            return {"status": "ok"}
-
-        # ============================================
-        # PERFIL DE USUARIO - Comandos
-        # ============================================
-
-        # Ver perfil actual
-        if any(keyword in msg_lower for keyword in ['mi perfil', 'ver perfil', 'mis datos', 'perfil']):
-            from app.models.models import Profile
-            profile = db.query(Profile).filter(Profile.user_id == session["user_id"]).first()
-
-            if not profile or profile.legal_first_name == "WhatsApp":
-                response_text = "👤 *Tu perfil está vacío*\n\n"
-                response_text += "Para reservar vuelos reales necesitas registrar tus datos.\n\n"
-                response_text += "Escribe *registrar* para comenzar."
-            else:
-                is_complete = (
-                    profile.legal_first_name and
-                    profile.legal_first_name != "WhatsApp" and
-                    profile.legal_last_name and
-                    profile.dob and
-                    profile.email
-                )
-
-                response_text = "👤 *Tu Perfil*\n\n"
-                response_text += f"📛 Nombre: {profile.legal_first_name} {profile.legal_last_name}\n"
-                response_text += f"📧 Email: {profile.email or 'No registrado'}\n"
-                response_text += f"📅 Nacimiento: {profile.dob}\n"
-                response_text += f"🚻 Género: {'Masculino' if profile.gender == 'M' else 'Femenino'}\n"
-
-                if profile.passport_number and profile.passport_number != "000000000":
-                    response_text += f"🛂 Pasaporte: ***{profile.passport_number[-4:]}\n"
-                    response_text += f"   País: {profile.passport_country}\n"
-                    response_text += f"   Vence: {profile.passport_expiry}\n"
-                else:
-                    response_text += "🛂 Pasaporte: No registrado\n"
-
-                if is_complete:
-                    response_text += "\n✅ *Perfil completo* - Puedes reservar vuelos"
-                else:
-                    response_text += "\n⚠️ *Perfil incompleto* - Escribe 'registrar' para completar"
 
             send_whatsapp_message(from_number, response_text)
             return {"status": "ok"}
