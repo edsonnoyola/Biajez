@@ -617,7 +617,11 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
         
         # Check if confirming booking
         # DEBUG: Log session state to diagnose confirmation issues
-        if incoming_msg.lower() in ['si', 'sí', 'yes', 'confirmar']:
+        # IMPORTANT: Skip this handler if user is in profile registration flow
+        profile_for_reg_check = db.query(Profile).filter(Profile.user_id == session.get("user_id")).first()
+        user_in_registration = profile_for_reg_check and profile_for_reg_check.registration_step
+
+        if incoming_msg.lower() in ['si', 'sí', 'yes', 'confirmar'] and not user_in_registration:
             print(f"🔍 DEBUG Confirmation attempt:")
             print(f"   - from_number: {from_number}")
             print(f"   - incoming_msg: {incoming_msg}")
