@@ -320,3 +320,33 @@ def admin_get_profile(phone: str, secret: str):
         }
     finally:
         db.close()
+
+
+@app.get("/admin/profiles")
+def admin_list_profiles(secret: str):
+    """List all profiles"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+
+    from app.db.database import SessionLocal
+    from app.models.models import Profile
+
+    db = SessionLocal()
+    try:
+        profiles = db.query(Profile).all()
+        return {
+            "status": "ok",
+            "count": len(profiles),
+            "profiles": [
+                {
+                    "user_id": p.user_id,
+                    "name": f"{p.legal_first_name} {p.legal_last_name}",
+                    "phone": p.phone_number,
+                    "email": p.email,
+                    "registration_step": p.registration_step
+                }
+                for p in profiles
+            ]
+        }
+    finally:
+        db.close()
