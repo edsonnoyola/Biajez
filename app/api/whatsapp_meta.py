@@ -196,7 +196,24 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         message = messages[0]
         from_number = message.get("from")
         message_type = message.get("type")
-        
+        message_id = message.get("id")
+
+        # ===== DEDUPLICACIÓN DE MENSAJES =====
+        # WhatsApp puede enviar el mismo webhook múltiples veces
+        # Usar un set en memoria para rastrear mensajes procesados
+        if not hasattr(whatsapp_webhook, '_processed_messages'):
+            whatsapp_webhook._processed_messages = set()
+
+        if message_id in whatsapp_webhook._processed_messages:
+            print(f"⏭️ Mensaje duplicado ignorado: {message_id}")
+            return {"status": "ok", "duplicate": True}
+
+        # Agregar al set (limitar a últimos 1000 para no consumir memoria)
+        whatsapp_webhook._processed_messages.add(message_id)
+        if len(whatsapp_webhook._processed_messages) > 1000:
+            # Limpiar mensajes antiguos
+            whatsapp_webhook._processed_messages = set(list(whatsapp_webhook._processed_messages)[-500:])
+
         # Handle interactive button responses
         if message_type == "interactive":
             interactive = message.get("interactive", {})
