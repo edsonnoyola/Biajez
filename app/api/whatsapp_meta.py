@@ -977,6 +977,14 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
         # Obtener o crear perfil
         profile = db.query(Profile).filter(Profile.user_id == session["user_id"]).first()
 
+        # DEBUG: Log registration state
+        print(f"📋 REGISTRATION DEBUG:")
+        print(f"   - session user_id: {session.get('user_id')}")
+        print(f"   - profile found: {profile is not None}")
+        if profile:
+            print(f"   - profile.registration_step: {profile.registration_step}")
+            print(f"   - profile.legal_first_name: {profile.legal_first_name}")
+
         # Iniciar registro de perfil
         if msg_lower in ['registrar', 'registro', 'actualizar perfil', 'editar perfil']:
             if not profile:
