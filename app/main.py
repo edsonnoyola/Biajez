@@ -297,8 +297,8 @@ def admin_get_profile(phone: str, secret: str):
     from app.db.database import SessionLocal
     from app.models.models import Profile
 
-    db = SessionLocal()
     try:
+        db = SessionLocal()
         # Try different phone formats
         profile = db.query(Profile).filter(
             (Profile.phone_number == phone) |
@@ -307,9 +307,10 @@ def admin_get_profile(phone: str, secret: str):
         ).first()
 
         if not profile:
+            db.close()
             return {"status": "not_found", "phone": phone}
 
-        return {
+        result = {
             "status": "found",
             "profile": {
                 "user_id": profile.user_id,
@@ -318,15 +319,15 @@ def admin_get_profile(phone: str, secret: str):
                 "email": profile.email,
                 "phone_number": profile.phone_number,
                 "dob": str(profile.dob) if profile.dob else None,
-                "gender": profile.gender.value if profile.gender else None,
-                "passport_number": profile.passport_number[-4:] if profile.passport_number and len(profile.passport_number) > 4 else profile.passport_number,
+                "gender": str(profile.gender) if profile.gender else None,
                 "passport_country": profile.passport_country,
-                "passport_expiry": str(profile.passport_expiry) if profile.passport_expiry else None,
                 "registration_step": profile.registration_step
             }
         }
-    finally:
         db.close()
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 @app.get("/admin/profiles")
@@ -338,16 +339,16 @@ def admin_list_profiles(secret: str):
     from app.db.database import SessionLocal
     from app.models.models import Profile
 
-    db = SessionLocal()
     try:
+        db = SessionLocal()
         profiles = db.query(Profile).all()
-        return {
+        result = {
             "status": "ok",
             "count": len(profiles),
             "profiles": [
                 {
                     "user_id": p.user_id,
-                    "name": f"{p.legal_first_name} {p.legal_last_name}",
+                    "name": f"{p.legal_first_name or ''} {p.legal_last_name or ''}".strip(),
                     "phone": p.phone_number,
                     "email": p.email,
                     "registration_step": p.registration_step
@@ -355,5 +356,7 @@ def admin_list_profiles(secret: str):
                 for p in profiles
             ]
         }
-    finally:
         db.close()
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
