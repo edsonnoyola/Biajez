@@ -1093,20 +1093,19 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                         except:
                             pass
 
-                    trip = Trip(
+                    # Save trip using raw SQL (ORM doesn't persist on Render)
+                    from app.services.booking_execution import save_trip_sql
+                    save_trip_sql(
                         booking_reference=pnr,
                         user_id=session["user_id"],
-                        provider_source=ProviderSourceEnum.DUFFEL,
+                        provider_source="DUFFEL",
                         total_amount=float(price) if price else 0,
-                        status=TripStatusEnum.TICKETED,
+                        status="TICKETED",
                         departure_city=dep_city,
                         arrival_city=arr_city,
                         departure_date=dep_date,
                         confirmed_at=dt.utcnow().isoformat()
                     )
-                    db.add(trip)
-                    db.commit()
-                    print(f"✅ Mock trip saved to DB: {pnr}")
 
                     # Store last booking info for context (so user can say "same dates" later)
                     session["last_booking"] = {

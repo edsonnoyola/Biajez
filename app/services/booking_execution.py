@@ -8,6 +8,45 @@ from duffel_api import Duffel
 from app.services.liteapi_hotels import LiteAPIService
 import json
 
+def save_trip_sql(booking_reference, user_id, provider_source, total_amount, status,
+                   invoice_url=None, confirmed_at=None, departure_city=None,
+                   arrival_city=None, departure_date=None, duffel_order_id=None):
+    """Save Trip record using raw SQL - ORM writes don't persist on Render PostgreSQL."""
+    from app.db.database import engine
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO trips (booking_reference, user_id, provider_source, total_amount, status,
+                                       invoice_url, confirmed_at, departure_city, arrival_city,
+                                       departure_date, duffel_order_id)
+                    VALUES (:booking_reference, :user_id, :provider_source, :total_amount, :status,
+                            :invoice_url, :confirmed_at, :departure_city, :arrival_city,
+                            :departure_date, :duffel_order_id)
+                """),
+                {
+                    "booking_reference": booking_reference,
+                    "user_id": user_id,
+                    "provider_source": provider_source,
+                    "total_amount": total_amount,
+                    "status": status,
+                    "invoice_url": invoice_url,
+                    "confirmed_at": confirmed_at,
+                    "departure_city": departure_city,
+                    "arrival_city": arrival_city,
+                    "departure_date": str(departure_date) if departure_date else None,
+                    "duffel_order_id": duffel_order_id,
+                }
+            )
+            conn.commit()
+        print(f"✅ Trip saved via raw SQL: {booking_reference}")
+        return True
+    except Exception as e:
+        print(f"❌ Trip save FAILED: {booking_reference} - {e}")
+        return False
+
+
 class BookingOrchestrator:
     def __init__(self, db: Session):
         self.db = db
@@ -92,19 +131,17 @@ class BookingOrchestrator:
         # Generate a fake PNR
         pnr = "SIM" + os.urandom(3).hex().upper()
         
-        # Save Trip to DB
+        # Save Trip to DB using raw SQL (ORM doesn't persist on Render)
         from datetime import datetime
-        trip = Trip(
+        save_trip_sql(
             booking_reference=pnr,
-            user_id=profile.user_id, # FIXED: Added user_id
-            provider_source=ProviderSourceEnum.AMADEUS, # Store as Amadeus for consistency
+            user_id=profile.user_id,
+            provider_source="AMADEUS",
             total_amount=amount,
-            status=TripStatusEnum.TICKETED,
+            status="TICKETED",
             invoice_url="https://stripe.com/invoice/sim_123",
             confirmed_at=datetime.utcnow().isoformat()
         )
-        self.db.add(trip)
-        self.db.commit()
         
         # Generate Ticket
         from app.services.ticket_generator import TicketGenerator
@@ -205,19 +242,17 @@ class BookingOrchestrator:
             pnr = order['id'] # Amadeus Order ID is often used as PNR or reference
             ticket_number = order.get('associatedRecords', [{}])[0].get('reference', 'PENDING')
             
-            # Save Trip
+            # Save Trip using raw SQL (ORM doesn't persist on Render)
             from datetime import datetime
-            trip = Trip(
+            save_trip_sql(
                 booking_reference=pnr,
-                user_id=profile.user_id, # FIXED: Added user_id
-                provider_source=ProviderSourceEnum.AMADEUS,
+                user_id=profile.user_id,
+                provider_source="AMADEUS",
                 total_amount=amount,
-                status=TripStatusEnum.TICKETED,
+                status="TICKETED",
                 invoice_url="https://stripe.com/invoice/123",
                 confirmed_at=datetime.utcnow().isoformat()
             )
-            self.db.add(trip)
-            self.db.commit()
             
             # Generate HTML Ticket
             from app.services.ticket_generator import TicketGenerator
@@ -371,6 +406,27 @@ class BookingOrchestrator:
             pnr = order_data['booking_reference']
             ticket_number = order_data['id']
 
+            # SAFETY NET: Save PNR to Redis immediately after Duffel confirms
+            # This way even if DB save fails, we have a record of the booking
+            try:
+                import redis
+                r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+                import json as _json
+                r.setex(
+                    f"booking_backup:{pnr}",
+                    86400 * 30,  # Keep for 30 days
+                    _json.dumps({
+                        "pnr": pnr,
+                        "duffel_order_id": ticket_number,
+                        "user_id": profile.user_id,
+                        "amount": amount,
+                        "timestamp": datetime.utcnow().isoformat() if 'datetime' in dir() else "unknown"
+                    })
+                )
+                print(f"🔒 Booking backup saved to Redis: {pnr}")
+            except Exception as redis_err:
+                print(f"⚠️ Redis backup failed (non-critical): {redis_err}")
+
             # Extract flight details from order
             from datetime import datetime
             slices = order_data.get('slices', [])
@@ -393,12 +449,13 @@ class BookingOrchestrator:
                         except:
                             pass
 
-            trip = Trip(
+            # Save Trip using raw SQL (ORM doesn't persist on Render)
+            save_trip_sql(
                 booking_reference=pnr,
                 user_id=profile.user_id,
-                provider_source=ProviderSourceEnum.DUFFEL,
+                provider_source="DUFFEL",
                 total_amount=amount,
-                status=TripStatusEnum.TICKETED,
+                status="TICKETED",
                 invoice_url="https://stripe.com/invoice/456",
                 confirmed_at=datetime.utcnow().isoformat(),
                 departure_city=departure_city,
@@ -406,8 +463,6 @@ class BookingOrchestrator:
                 departure_date=departure_date,
                 duffel_order_id=ticket_number
             )
-            self.db.add(trip)
-            self.db.commit()
             
             
             # Generate HTML Ticket with REAL Duffel data
@@ -473,17 +528,15 @@ class BookingOrchestrator:
             print(f"DEBUG: Booking Mock Hotel {offer_id}")
             pnr = "HTL-" + os.urandom(3).hex().upper()
             
-            # Save Trip
-            trip = Trip(
+            # Save Trip using raw SQL (ORM doesn't persist on Render)
+            save_trip_sql(
                 booking_reference=pnr,
-                user_id=profile.user_id, # FIXED: Added user_id
-                provider_source=ProviderSourceEnum.AMADEUS_HOTEL,
+                user_id=profile.user_id,
+                provider_source="AMADEUS_HOTEL",
                 total_amount=amount,
-                status=TripStatusEnum.TICKETED,
+                status="TICKETED",
                 invoice_url="https://stripe.com/invoice/mock_htl"
             )
-            self.db.add(trip)
-            self.db.commit()
             
             # Generate Ticket
             from app.services.ticket_generator import TicketGenerator
@@ -542,16 +595,15 @@ class BookingOrchestrator:
             order_data = response.data[0] # Usually a list
             pnr = order_data['id']
             
-            trip = Trip(
+            # Save Trip using raw SQL (ORM doesn't persist on Render)
+            save_trip_sql(
                 booking_reference=pnr,
-                user_id=profile.user_id, # FIXED: Added user_id
-                provider_source=ProviderSourceEnum.AMADEUS_HOTEL,
+                user_id=profile.user_id,
+                provider_source="AMADEUS_HOTEL",
                 total_amount=amount,
-                status=TripStatusEnum.TICKETED,
+                status="TICKETED",
                 invoice_url="https://stripe.com/invoice/789"
             )
-            self.db.add(trip)
-            self.db.commit()
             
             # Generate Hotel Ticket
             from app.services.ticket_generator import TicketGenerator
@@ -595,19 +647,17 @@ class BookingOrchestrator:
             
             pnr = booking_res.get("booking_id")
             
-            # Save Trip
+            # Save Trip using raw SQL (ORM doesn't persist on Render)
             from datetime import datetime
-            trip = Trip(
+            save_trip_sql(
                 booking_reference=pnr,
                 user_id=profile.user_id,
-                provider_source=ProviderSourceEnum.AMADEUS_HOTEL, # Using existing enum for now or add LITEAPI
+                provider_source="AMADEUS_HOTEL",
                 total_amount=amount,
-                status=TripStatusEnum.TICKETED,
+                status="TICKETED",
                 invoice_url="https://stripe.com/invoice/lite_123",
                 confirmed_at=datetime.utcnow().isoformat()
             )
-            self.db.add(trip)
-            self.db.commit()
             
             # Generate Ticket
             from app.services.ticket_generator import TicketGenerator
