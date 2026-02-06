@@ -341,6 +341,57 @@ def admin_logs(secret: str, lines: int = 50):
     }
 
 
+@app.post("/admin/fix-db")
+def admin_fix_db(secret: str):
+    """Manually add missing columns to PostgreSQL database"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+
+    from sqlalchemy import text
+    results = []
+
+    try:
+        with engine.connect() as conn:
+            # Add registration_step to profiles
+            try:
+                conn.execute(text("ALTER TABLE profiles ADD COLUMN registration_step VARCHAR"))
+                conn.commit()
+                results.append("Added profiles.registration_step")
+            except Exception as e:
+                if "already exists" in str(e).lower() or "duplicate column" in str(e).lower():
+                    results.append("profiles.registration_step already exists")
+                else:
+                    results.append(f"profiles.registration_step error: {e}")
+
+            # Add extra_data to notifications
+            try:
+                conn.execute(text("ALTER TABLE notifications ADD COLUMN extra_data TEXT"))
+                conn.commit()
+                results.append("Added notifications.extra_data")
+            except Exception as e:
+                if "already exists" in str(e).lower() or "duplicate column" in str(e).lower():
+                    results.append("notifications.extra_data already exists")
+                else:
+                    results.append(f"notifications.extra_data error: {e}")
+
+            # Add columns to trips
+            for col in ['baggage_services', 'checkin_status', 'boarding_pass_url', 'duffel_order_id']:
+                try:
+                    col_type = "VARCHAR DEFAULT 'NOT_CHECKED_IN'" if col == 'checkin_status' else "VARCHAR" if col != 'baggage_services' else "TEXT"
+                    conn.execute(text(f"ALTER TABLE trips ADD COLUMN {col} {col_type}"))
+                    conn.commit()
+                    results.append(f"Added trips.{col}")
+                except Exception as e:
+                    if "already exists" in str(e).lower() or "duplicate column" in str(e).lower():
+                        results.append(f"trips.{col} already exists")
+                    else:
+                        results.append(f"trips.{col} error: {e}")
+
+        return {"status": "ok", "results": results}
+    except Exception as e:
+        return {"status": "error", "message": str(e), "partial_results": results}
+
+
 @app.get("/admin/profile/{phone}")
 def admin_get_profile(phone: str, secret: str):
     """Get profile by phone number"""
