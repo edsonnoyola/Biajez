@@ -320,10 +320,16 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         reg_profile = db.query(Profile).filter(Profile.user_id == session.get("user_id")).first()
 
         # CANCELAR REGISTRO - permite salir del flujo de registro
-        if msg_lower in ['cancelar', 'salir', 'exit', 'no'] and reg_profile and reg_profile.registration_step:
+        if msg_lower in ['cancelar', 'salir', 'exit', 'reset', 'reiniciar', 'borrar', 'limpiar'] and reg_profile and reg_profile.registration_step:
             reg_profile.registration_step = None
             db.commit()
-            send_whatsapp_message(from_number, "❌ Registro cancelado.\n\nPuedes escribir *registrar* cuando quieras continuar.")
+
+            # Si es reset, también limpiar sesión
+            if msg_lower in ['reset', 'reiniciar', 'borrar', 'limpiar']:
+                session_manager.delete_session(from_number)
+                send_whatsapp_message(from_number, "✅ Sesión reiniciada y registro cancelado.\n\n¿A dónde quieres viajar?")
+            else:
+                send_whatsapp_message(from_number, "❌ Registro cancelado.\n\nPuedes escribir *registrar* cuando quieras continuar.")
             return {"status": "ok"}
 
         # Iniciar registro
