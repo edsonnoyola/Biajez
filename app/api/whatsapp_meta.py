@@ -1012,13 +1012,15 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             is_real_booking = offer_id and (offer_id.startswith("DUFFEL::") or offer_id.startswith("AMADEUS::"))
 
             if is_real_booking and not profile_complete:
+                # DIAGNOSTIC: show exactly why profile check failed
                 response_text = "⚠️ *Perfil incompleto*\n\n"
-                response_text += "Para reservar vuelos reales necesito tus datos:\n"
-                response_text += "• Nombre completo\n"
-                response_text += "• Email\n"
-                response_text += "• Fecha de nacimiento\n\n"
-                response_text += "Escribe *registrar* para completar tu perfil.\n\n"
-                response_text += "_Tu vuelo quedará guardado y podrás confirmarlo después._"
+                response_text += f"DEBUG user_id={user_id}\n"
+                response_text += f"DEBUG from_number={from_number}\n"
+                response_text += f"DEBUG row_found={row is not None}\n"
+                if row:
+                    response_text += f"DEBUG row={row}\n"
+                response_text += f"DEBUG profile_complete={profile_complete}\n\n"
+                response_text += "Escribe *registrar* para completar tu perfil."
                 send_whatsapp_message(from_number, response_text)
                 return {"status": "ok"}
 
