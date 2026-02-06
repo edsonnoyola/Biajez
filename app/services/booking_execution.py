@@ -98,11 +98,15 @@ class BookingOrchestrator:
             email=row_dict.get('email'),
             gender=row_dict.get('gender', 'M'),
             dob=to_date(row_dict.get('dob')),
-            passport_number=row_dict.get('passport_number'),
+            passport_number=row_dict.get('passport_number'),  # Decrypted below
             passport_expiry=to_date(row_dict.get('passport_expiry')),
             passport_country=row_dict.get('passport_country'),
             known_traveler_number=row_dict.get('known_traveler_number'),
         )
+        # Decrypt passport number for API calls
+        from app.utils.encryption import decrypt_value
+        if user_profile.passport_number:
+            user_profile.passport_number = decrypt_value(user_profile.passport_number)
         print(f"📋 BOOKING PROFILE: {user_profile.legal_first_name} {user_profile.legal_last_name}, dob={user_profile.dob}, email={user_profile.email}")
 
         # NOTE: No Stripe payment needed - we're an internal agency

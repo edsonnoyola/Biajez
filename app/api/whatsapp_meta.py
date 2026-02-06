@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Request, Response, Depends
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.ai.agent import AntigravityAgent
@@ -122,14 +123,9 @@ flight_aggregator = FlightAggregator()
 # DEPRECATED: Now using Redis session manager
 # user_sessions = {}
 
-# AUTHORIZED NUMBERS - Only these can make bookings
-AUTHORIZED_NUMBERS = [
-    "525610016226",  # Admin (Edson)
-    "525572461012",  # User
-    "18098601748",   # Monnyka (RD)
-    "18296798007",   # RD
-    "18098691748",   # RD
-]
+# AUTHORIZED NUMBERS - loaded from env var (comma-separated)
+_auth_env = os.getenv("AUTHORIZED_NUMBERS", "")
+AUTHORIZED_NUMBERS = [n.strip() for n in _auth_env.split(",") if n.strip()]
 
 def normalize_mx_number(phone_number: str) -> str:
     """Standardize Mexican phone numbers to 52 + 10 digits (remove + and 1 after 52)"""
@@ -144,14 +140,17 @@ def normalize_mx_number(phone_number: str) -> str:
 
 def is_authorized(phone_number: str) -> bool:
     """Check if phone number is authorized to make bookings"""
+    if not AUTHORIZED_NUMBERS:
+        # No restriction configured - allow all
+        return True
     normalized = normalize_mx_number(phone_number)
     print(f"🔐 Checking authorization for {phone_number} -> {normalized}")
-    
+
     # Check against normalized authorized list
     for auth in AUTHORIZED_NUMBERS:
         if normalize_mx_number(auth) == normalized:
             return True
-    
+
     return False
 
 @router.get("/v1/whatsapp/webhook")
@@ -163,9 +162,9 @@ async def verify_webhook(request: Request):
     token = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
     
-    verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN", "biajez_verify_token_123")
-    
-    if mode == "subscribe" and token == verify_token:
+    verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN")
+
+    if mode == "subscribe" and verify_token and token == verify_token:
         print(f"✅ Webhook verified successfully")
         return Response(content=challenge, media_type="text/plain")
     
@@ -490,7 +489,10 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
             elif step == "pasaporte_numero":
                 passport = incoming_msg.strip().upper()
-                update_profile_sql(session_user_id, passport_number=passport, registration_step="pasaporte_pais")
+                # Encrypt passport before storing
+                from app.utils.encryption import encrypt_value
+                encrypted_passport = encrypt_value(passport)
+                update_profile_sql(session_user_id, passport_number=encrypted_passport, registration_step="pasaporte_pais")
                 response_text = f"✅ Pasaporte: *{passport}*\n\n"
                 response_text += "🌍 *País emisor del pasaporte:*\n\n_Código de 2 letras (MX, US, ES, etc.)_"
 
@@ -518,7 +520,9 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                         response_text += f"👤 {profile['legal_first_name']} {profile['legal_last_name']}\n"
                         response_text += f"📧 {profile['email']}\n"
                         response_text += f"📅 Nacimiento: {profile['dob']}\n"
-                        passport_display = profile['passport_number'][-4:] if len(str(profile['passport_number'])) > 4 else profile['passport_number']
+                        from app.utils.encryption import decrypt_value
+                        _decrypted_pp = decrypt_value(str(profile['passport_number']))
+                        passport_display = _decrypted_pp[-4:] if len(_decrypted_pp) > 4 else _decrypted_pp
                         response_text += f"🛂 Pasaporte: {profile['passport_country']} - ***{passport_display}\n"
                         response_text += f"   Vence: {profile['passport_expiry']}\n\n"
                         response_text += "🎉 *Ya puedes reservar vuelos nacionales e internacionales!*"
@@ -598,7 +602,9 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             response_text += f"🚻 Género: {'Masculino' if str(profile.gender) == 'GenderEnum.M' or str(profile.gender) == 'M' else 'Femenino'}\n"
 
             if profile.passport_number and profile.passport_number not in ["", "N/A", "000000000"]:
-                passport_display = f"***{profile.passport_number[-4:]}" if len(profile.passport_number) > 4 else profile.passport_number
+                from app.utils.encryption import decrypt_value
+                _dec_pp = decrypt_value(profile.passport_number)
+                passport_display = f"***{_dec_pp[-4:]}" if len(_dec_pp) > 4 else _dec_pp
                 response_text += f"🛂 Pasaporte: {passport_display}\n"
                 response_text += f"   País: {profile.passport_country}\n"
                 response_text += f"   Vence: {profile.passport_expiry}\n"
@@ -2643,7 +2649,8 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
         except:
             pass  # Don't fail if we can't send the error message
 
-        return {"status": "error", "message": str(e)}
+        # ALWAYS return 200 to prevent WhatsApp from retrying endlessly
+        return JSONResponse(status_code=200, content={"status": "error", "message": str(e)})
 
 def send_whatsapp_message(to_number: str, text: str):
     """

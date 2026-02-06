@@ -305,7 +305,9 @@ def get_scheduler_status():
 # ============================================
 # ADMIN ENDPOINTS (Protected)
 # ============================================
-ADMIN_SECRET = os.getenv("ADMIN_SECRET", "biajez_admin_2026")
+ADMIN_SECRET = os.getenv("ADMIN_SECRET")
+if not ADMIN_SECRET:
+    print("⚠️ WARNING: ADMIN_SECRET not set - admin endpoints will be disabled")
 
 @app.get("/admin/last-confirm/{phone}")
 def admin_last_confirm(phone: str, secret: str):
