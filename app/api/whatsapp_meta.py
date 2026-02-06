@@ -349,14 +349,15 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             updates = []
             params = {"user_id": user_id}
             for key, value in fields.items():
-                if value is not None:
-                    updates.append(f"{key} = :{key}")
-                    params[key] = value
+                # IMPORTANT: Allow None values to set columns to NULL
+                updates.append(f"{key} = :{key}")
+                params[key] = value
             if updates:
                 sql = f"UPDATE profiles SET {', '.join(updates)} WHERE user_id = :user_id"
                 with engine.connect() as conn:
                     conn.execute(text(sql), params)
                     conn.commit()
+                    print(f"   SQL UPDATE: {', '.join(f'{k}={v}' for k,v in fields.items())}")
 
         # Get current profile state with raw SQL
         def get_profile_sql(user_id):
@@ -517,18 +518,17 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
                     if parsed_date:
                         update_profile_sql(session_user_id, passport_expiry=str(parsed_date), registration_step=None)
+                        profile = get_profile_sql(session_user_id)
+                        response_text = "✅ *¡Perfil completo!*\n\n"
+                        response_text += f"👤 {profile['legal_first_name']} {profile['legal_last_name']}\n"
+                        response_text += f"📧 {profile['email']}\n"
+                        response_text += f"📅 Nacimiento: {profile['dob']}\n"
+                        passport_display = profile['passport_number'][-4:] if len(str(profile['passport_number'])) > 4 else profile['passport_number']
+                        response_text += f"🛂 Pasaporte: {profile['passport_country']} - ***{passport_display}\n"
+                        response_text += f"   Vence: {profile['passport_expiry']}\n\n"
+                        response_text += "🎉 *Ya puedes reservar vuelos nacionales e internacionales!*"
                     else:
-                        update_profile_sql(session_user_id, registration_step=None)
-
-                    profile = get_profile_sql(session_user_id)
-                    response_text = "✅ *¡Perfil completo!*\n\n"
-                    response_text += f"👤 {profile['legal_first_name']} {profile['legal_last_name']}\n"
-                    response_text += f"📧 {profile['email']}\n"
-                    response_text += f"📅 Nacimiento: {profile['dob']}\n"
-                    passport_display = profile['passport_number'][-4:] if len(str(profile['passport_number'])) > 4 else profile['passport_number']
-                    response_text += f"🛂 Pasaporte: {profile['passport_country']} - ***{passport_display}\n"
-                    response_text += f"   Vence: {profile['passport_expiry']}\n\n"
-                    response_text += "🎉 *Ya puedes reservar vuelos nacionales e internacionales!*"
+                        response_text = "❌ Fecha inválida. Usa formato: *DD/MM/AAAA*\n_Ejemplo: 15/06/2030_\n\n_(Escribe *cancelar* para salir)_"
                 except Exception as e:
                     print(f"ERROR in pasaporte_vencimiento: {e}")
                     response_text = "❌ Fecha inválida. Usa formato: *DD/MM/AAAA*"
@@ -1563,15 +1563,18 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             # Clear session
             session_manager.delete_session(from_number)
 
-            # Also clear registration_step if user was in middle of registration
+            # Also clear registration_step with RAW SQL (ORM doesn't commit properly)
             try:
-                from app.models.models import Profile
-                profile = db.query(Profile).filter(Profile.user_id == session.get("user_id")).first()
-                if profile and profile.registration_step:
-                    profile.registration_step = None
-                    db.commit()
-            except:
-                pass
+                from app.db.database import engine as reset_engine
+                from sqlalchemy import text as reset_text
+                user_id = session.get("user_id")
+                if user_id:
+                    with reset_engine.connect() as conn:
+                        conn.execute(reset_text("UPDATE profiles SET registration_step = NULL WHERE user_id = :uid"), {"uid": user_id})
+                        conn.commit()
+                        print(f"🔄 EMERGENCY RESET: cleared registration_step for {user_id}")
+            except Exception as e:
+                print(f"❌ EMERGENCY RESET error: {e}")
 
             send_whatsapp_message(from_number, "✅ Tu sesión ha sido reiniciada. ¿A dónde quieres viajar?")
             return {"status": "reset"}

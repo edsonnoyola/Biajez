@@ -468,6 +468,19 @@ def admin_debug_profile(phone: str, secret: str):
     return results
 
 
+@app.post("/admin/clear-registration")
+def admin_clear_registration(secret: str):
+    """Force clear registration_step for ALL profiles"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        result = conn.execute(text("UPDATE profiles SET registration_step = NULL WHERE registration_step IS NOT NULL"))
+        conn.commit()
+        return {"status": "ok", "rows_cleared": result.rowcount}
+
+
 @app.post("/admin/fix-db")
 def admin_fix_db(secret: str):
     """Manually add missing columns to PostgreSQL database"""
