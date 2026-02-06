@@ -442,6 +442,48 @@ def admin_fix_profile_phone(secret: str, user_id: str, new_phone: str):
         return {"status": "error", "message": str(e)}
 
 
+@app.post("/admin/update-profile")
+def admin_update_profile(secret: str, user_id: str, first_name: str = None, last_name: str = None,
+                          email: str = None, passport: str = None, passport_country: str = None):
+    """Directly update profile with raw SQL"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+
+    from sqlalchemy import text
+
+    try:
+        updates = []
+        params = {"user_id": user_id}
+
+        if first_name:
+            updates.append("legal_first_name = :first_name")
+            params["first_name"] = first_name
+        if last_name:
+            updates.append("legal_last_name = :last_name")
+            params["last_name"] = last_name
+        if email:
+            updates.append("email = :email")
+            params["email"] = email
+        if passport:
+            updates.append("passport_number = :passport")
+            params["passport"] = passport
+        if passport_country:
+            updates.append("passport_country = :passport_country")
+            params["passport_country"] = passport_country
+
+        if not updates:
+            return {"status": "error", "message": "No fields to update"}
+
+        sql = f"UPDATE profiles SET {', '.join(updates)} WHERE user_id = :user_id"
+
+        with engine.connect() as conn:
+            result = conn.execute(text(sql), params)
+            conn.commit()
+            return {"status": "ok", "rows_affected": result.rowcount}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 @app.get("/admin/profile-by-userid/{user_id}")
 def admin_get_profile_by_userid(user_id: str, secret: str):
     """Get profile by user_id"""
