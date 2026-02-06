@@ -36,6 +36,21 @@ class BookingOrchestrator:
 
         # Convert row to Profile-like object for compatibility
         row_dict = dict(row._mapping)
+
+        # Ensure date fields are proper date objects (DB may return strings)
+        from datetime import date, datetime
+        def to_date(val):
+            if val is None:
+                return None
+            if isinstance(val, date):
+                return val
+            if isinstance(val, str):
+                try:
+                    return datetime.strptime(val[:10], "%Y-%m-%d").date()
+                except:
+                    return None
+            return val
+
         user_profile = Profile(
             user_id=row_dict.get('user_id'),
             phone_number=row_dict.get('phone_number'),
@@ -43,9 +58,9 @@ class BookingOrchestrator:
             legal_last_name=row_dict.get('legal_last_name'),
             email=row_dict.get('email'),
             gender=row_dict.get('gender', 'M'),
-            dob=row_dict.get('dob'),
+            dob=to_date(row_dict.get('dob')),
             passport_number=row_dict.get('passport_number'),
-            passport_expiry=row_dict.get('passport_expiry'),
+            passport_expiry=to_date(row_dict.get('passport_expiry')),
             passport_country=row_dict.get('passport_country'),
             known_traveler_number=row_dict.get('known_traveler_number'),
         )
