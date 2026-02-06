@@ -44,25 +44,41 @@ models.Base.metadata.create_all(bind=engine)
 
 # Run migrations for new columns (safe to run multiple times)
 def run_migrations():
-    """Add missing columns to database - SQLite compatible"""
+    """Add missing columns to database - PostgreSQL and SQLite compatible"""
     from sqlalchemy import text, inspect
 
+    # Detect database type
+    db_url = os.getenv("DATABASE_URL", "")
+    is_postgres = "postgresql" in db_url or "postgres" in db_url
+
     def column_exists(conn, table, column):
-        """Check if column exists in table (SQLite compatible)"""
+        """Check if column exists in table"""
         try:
-            result = conn.execute(text(f"PRAGMA table_info({table})"))
-            columns = [row[1] for row in result.fetchall()]
-            return column in columns
+            if is_postgres:
+                result = conn.execute(text(
+                    f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table}' AND column_name = '{column}'"
+                ))
+                return result.fetchone() is not None
+            else:
+                result = conn.execute(text(f"PRAGMA table_info({table})"))
+                columns = [row[1] for row in result.fetchall()]
+                return column in columns
         except:
             return False
 
     def table_exists(conn, table):
-        """Check if table exists (SQLite compatible)"""
+        """Check if table exists"""
         try:
-            result = conn.execute(text(
-                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'"
-            ))
-            return result.fetchone() is not None
+            if is_postgres:
+                result = conn.execute(text(
+                    f"SELECT table_name FROM information_schema.tables WHERE table_name = '{table}'"
+                ))
+                return result.fetchone() is not None
+            else:
+                result = conn.execute(text(
+                    f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'"
+                ))
+                return result.fetchone() is not None
         except:
             return False
 
@@ -87,47 +103,84 @@ def run_migrations():
                 conn.execute(text("ALTER TABLE notifications ADD COLUMN extra_data TEXT"))
                 conn.commit()
 
-            # Create price_alerts table (SQLite compatible)
+            # Create price_alerts table
             if not table_exists(conn, 'price_alerts'):
-                conn.execute(text("""
-                    CREATE TABLE price_alerts (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id VARCHAR,
-                        phone_number VARCHAR,
-                        search_type VARCHAR,
-                        origin VARCHAR,
-                        destination VARCHAR,
-                        departure_date VARCHAR,
-                        return_date VARCHAR,
-                        target_price FLOAT,
-                        initial_price FLOAT,
-                        lowest_price FLOAT,
-                        current_price FLOAT,
-                        is_active BOOLEAN DEFAULT 1,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        last_checked_at TIMESTAMP,
-                        notified_at TIMESTAMP,
-                        notification_count INTEGER DEFAULT 0,
-                        extra_data TEXT
-                    )
-                """))
+                if is_postgres:
+                    conn.execute(text("""
+                        CREATE TABLE price_alerts (
+                            id SERIAL PRIMARY KEY,
+                            user_id VARCHAR,
+                            phone_number VARCHAR,
+                            search_type VARCHAR,
+                            origin VARCHAR,
+                            destination VARCHAR,
+                            departure_date VARCHAR,
+                            return_date VARCHAR,
+                            target_price FLOAT,
+                            initial_price FLOAT,
+                            lowest_price FLOAT,
+                            current_price FLOAT,
+                            is_active BOOLEAN DEFAULT TRUE,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            last_checked_at TIMESTAMP,
+                            notified_at TIMESTAMP,
+                            notification_count INTEGER DEFAULT 0,
+                            extra_data TEXT
+                        )
+                    """))
+                else:
+                    conn.execute(text("""
+                        CREATE TABLE price_alerts (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            user_id VARCHAR,
+                            phone_number VARCHAR,
+                            search_type VARCHAR,
+                            origin VARCHAR,
+                            destination VARCHAR,
+                            departure_date VARCHAR,
+                            return_date VARCHAR,
+                            target_price FLOAT,
+                            initial_price FLOAT,
+                            lowest_price FLOAT,
+                            current_price FLOAT,
+                            is_active BOOLEAN DEFAULT 1,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            last_checked_at TIMESTAMP,
+                            notified_at TIMESTAMP,
+                            notification_count INTEGER DEFAULT 0,
+                            extra_data TEXT
+                        )
+                    """))
                 conn.commit()
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_price_alerts_user ON price_alerts(user_id)"))
                 conn.commit()
 
-            # Create loyalty_programs table (SQLite compatible)
+            # Create loyalty_programs table
             if not table_exists(conn, 'loyalty_programs'):
-                conn.execute(text("""
-                    CREATE TABLE loyalty_programs (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id VARCHAR,
-                        airline_code VARCHAR,
-                        program_name VARCHAR,
-                        member_number VARCHAR,
-                        tier_status VARCHAR,
-                        extra_data TEXT
-                    )
-                """))
+                if is_postgres:
+                    conn.execute(text("""
+                        CREATE TABLE loyalty_programs (
+                            id SERIAL PRIMARY KEY,
+                            user_id VARCHAR,
+                            airline_code VARCHAR,
+                            program_name VARCHAR,
+                            member_number VARCHAR,
+                            tier_status VARCHAR,
+                            extra_data TEXT
+                        )
+                    """))
+                else:
+                    conn.execute(text("""
+                        CREATE TABLE loyalty_programs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            user_id VARCHAR,
+                            airline_code VARCHAR,
+                            program_name VARCHAR,
+                            member_number VARCHAR,
+                            tier_status VARCHAR,
+                            extra_data TEXT
+                        )
+                    """))
                 conn.commit()
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_loyalty_user ON loyalty_programs(user_id)"))
                 conn.commit()
