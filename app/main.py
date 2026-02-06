@@ -852,6 +852,36 @@ def admin_get_profile(phone: str, secret: str):
 @app.get("/admin/profiles")
 def admin_list_profiles(secret: str):
     """List all profiles"""
+
+@app.get("/admin/list-trips")
+def admin_list_trips(secret: str, user_id: str = None):
+    """List all trips, optionally filtered by user_id"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            if user_id:
+                rows = conn.execute(text("SELECT booking_reference, user_id, status, departure_city, arrival_city, departure_date, total_amount, duffel_order_id, refund_amount FROM trips WHERE user_id = :uid"), {"uid": user_id}).fetchall()
+            else:
+                rows = conn.execute(text("SELECT booking_reference, user_id, status, departure_city, arrival_city, departure_date, total_amount, duffel_order_id, refund_amount FROM trips")).fetchall()
+        return {"trips": [{"booking_ref": r[0], "user_id": r[1], "status": r[2], "origin": r[3], "dest": r[4], "date": str(r[5]), "amount": float(r[6]) if r[6] else 0, "duffel_id": r[7], "refund": float(r[8]) if r[8] else None} for r in rows]}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.delete("/admin/delete-trip/{booking_ref}")
+def admin_delete_trip(booking_ref: str, secret: str):
+    """Delete a trip record by booking_reference"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text("DELETE FROM trips WHERE booking_reference = :ref"), {"ref": booking_ref})
+            conn.commit()
+        return {"status": "ok", "deleted": result.rowcount}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
     if secret != ADMIN_SECRET:
         return {"status": "error", "message": "Invalid secret"}
 
