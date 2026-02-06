@@ -319,6 +319,13 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         # Obtener perfil para verificar si está en registro
         reg_profile = db.query(Profile).filter(Profile.user_id == session.get("user_id")).first()
 
+        # CANCELAR REGISTRO - permite salir del flujo de registro
+        if msg_lower in ['cancelar', 'salir', 'exit', 'no'] and reg_profile and reg_profile.registration_step:
+            reg_profile.registration_step = None
+            db.commit()
+            send_whatsapp_message(from_number, "❌ Registro cancelado.\n\nPuedes escribir *registrar* cuando quieras continuar.")
+            return {"status": "ok"}
+
         # Iniciar registro
         if msg_lower in ['registrar', 'registro', 'actualizar perfil', 'editar perfil']:
             if not reg_profile:
@@ -341,7 +348,8 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             response_text = "👤 *Registro de Perfil*\n\n"
             response_text += "Vamos a registrar tus datos para poder reservar vuelos.\n\n"
             response_text += "📛 *Paso 1/6:* ¿Cuál es tu *nombre completo* como aparece en tu identificación?\n\n"
-            response_text += "_Ejemplo: Juan Carlos Pérez García_"
+            response_text += "_Ejemplo: Juan Carlos Pérez García_\n\n"
+            response_text += "_(Escribe *cancelar* en cualquier momento para salir)_"
             send_whatsapp_message(from_number, response_text)
             return {"status": "ok"}
 
@@ -1473,7 +1481,19 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
         
         # EMERGENCY RESET COMMAND
         if msg_lower in ["reset", "reiniciar", "borrar", "limpiar"]:
+            # Clear session
             session_manager.delete_session(from_number)
+
+            # Also clear registration_step if user was in middle of registration
+            try:
+                from app.models.models import Profile
+                profile = db.query(Profile).filter(Profile.user_id == session.get("user_id")).first()
+                if profile and profile.registration_step:
+                    profile.registration_step = None
+                    db.commit()
+            except:
+                pass
+
             send_whatsapp_message(from_number, "✅ Tu sesión ha sido reiniciada. ¿A dónde quieres viajar?")
             return {"status": "reset"}
 
