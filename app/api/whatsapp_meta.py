@@ -278,29 +278,54 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
         # Initialize session if new user
         if not session.get("user_id"):
-            from app.models.models import Profile
-            
+            from app.db.database import engine
+            from sqlalchemy import text
+
             # Normalize phone number for lookup
             normalized_phone = normalize_mx_number(from_number)
-            
-            # Look for existing profile by phone number (check both raw and normalized)
-            existing_profile = db.query(Profile).filter(
-                (Profile.phone_number == normalized_phone) | 
-                (Profile.phone_number == from_number)
-            ).first()
-            
-            is_new_user = existing_profile is None
-            
-            if existing_profile:
-                # Use existing profile
-                user_id = existing_profile.user_id
-                print(f"✅ Found existing profile for {normalized_phone}: {user_id}")
-            else:
+
+            # Try multiple phone variations to find profile (using raw SQL that works)
+            phone_variations = [
+                from_number,
+                normalized_phone,
+                f"whatsapp_{from_number}",  # user_id format
+                f"whatsapp_{normalized_phone}",
+            ]
+
+            print(f"🔍 Looking for profile with phone variations: {phone_variations}")
+
+            user_id = None
+            with engine.connect() as conn:
+                # Search by phone_number column
+                for phone_var in phone_variations:
+                    result = conn.execute(
+                        text("SELECT user_id FROM profiles WHERE phone_number = :phone LIMIT 1"),
+                        {"phone": phone_var}
+                    )
+                    row = result.fetchone()
+                    if row:
+                        user_id = row[0]
+                        print(f"✅ Found profile by phone_number={phone_var}: {user_id}")
+                        break
+
+                # Also search by user_id if not found by phone
+                if not user_id:
+                    for phone_var in phone_variations:
+                        result = conn.execute(
+                            text("SELECT user_id FROM profiles WHERE user_id = :uid LIMIT 1"),
+                            {"uid": phone_var}
+                        )
+                        row = result.fetchone()
+                        if row:
+                            user_id = row[0]
+                            print(f"✅ Found profile by user_id={phone_var}: {user_id}")
+                            break
+
+            if not user_id:
                 # Create new WhatsApp user
                 user_id = f"whatsapp_{from_number}"
-                print(f"📱 New WhatsApp user: {user_id}")
-            
-            
+                print(f"📱 New WhatsApp user (no profile found): {user_id}")
+
             session["user_id"] = user_id
             session_manager.save_session(from_number, session)
 
@@ -911,21 +936,48 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 send_whatsapp_message(from_number, response_text)
                 return {"status": "ok"}
 
-            # Check if profile is complete for REAL bookings
-            from app.models.models import Profile
+            # Check if profile is complete for REAL bookings (use raw SQL)
+            from app.db.database import engine
+            from sqlalchemy import text
             from datetime import datetime as dt
-            profile = db.query(Profile).filter(Profile.user_id == session["user_id"]).first()
 
-            # Validate profile has real data (not default values)
-            profile_complete = (
-                profile and
-                profile.legal_first_name and
-                profile.legal_first_name != "WhatsApp" and
-                profile.legal_last_name and
-                profile.dob and
-                profile.email and
-                "@whatsapp.temp" not in profile.email
-            )
+            profile = None
+            profile_complete = False
+            user_id = session.get("user_id")
+
+            print(f"🔍 Checking profile for user_id: {user_id}")
+
+            if user_id:
+                with engine.connect() as conn:
+                    result = conn.execute(
+                        text("SELECT legal_first_name, legal_last_name, email, dob FROM profiles WHERE user_id = :uid"),
+                        {"uid": user_id}
+                    )
+                    row = result.fetchone()
+                    if row:
+                        first_name, last_name, email, dob = row
+                        print(f"✅ Found profile: {first_name} {last_name}, {email}, dob={dob}")
+
+                        # Validate profile has real data (not default values)
+                        profile_complete = (
+                            first_name and
+                            first_name != "WhatsApp" and
+                            last_name and
+                            dob and
+                            email and
+                            "@whatsapp.temp" not in str(email)
+                        )
+                        # Create a simple profile object for later use
+                        profile = type('Profile', (), {
+                            'legal_first_name': first_name,
+                            'legal_last_name': last_name,
+                            'email': email,
+                            'dob': dob
+                        })()
+                    else:
+                        print(f"❌ No profile found for user_id: {user_id}")
+
+            print(f"📋 Profile complete: {profile_complete}")
 
             flight = session["selected_flight"]
             offer_id = flight.get("offer_id")
