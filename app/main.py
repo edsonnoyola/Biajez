@@ -443,6 +443,10 @@ def admin_get_profile_by_userid(user_id: str, secret: str):
                 "phone_number": profile.phone_number,
                 "dob": str(profile.dob) if profile.dob else None,
                 "gender": str(profile.gender) if profile.gender else None,
+                "passport_number": profile.passport_number,
+                "passport_country": profile.passport_country,
+                "passport_expiry": str(profile.passport_expiry) if profile.passport_expiry else None,
+                "registration_step": profile.registration_step,
             }
         }
         db.close()
