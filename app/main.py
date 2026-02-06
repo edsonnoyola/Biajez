@@ -392,6 +392,65 @@ def admin_fix_db(secret: str):
         return {"status": "error", "message": str(e), "partial_results": results}
 
 
+@app.post("/admin/fix-profile-phone")
+def admin_fix_profile_phone(secret: str, user_id: str, new_phone: str):
+    """Fix phone number in profile"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+
+    from app.db.database import SessionLocal
+    from app.models.models import Profile
+
+    try:
+        db = SessionLocal()
+        profile = db.query(Profile).filter(Profile.user_id == user_id).first()
+        if not profile:
+            db.close()
+            return {"status": "not_found", "user_id": user_id}
+
+        old_phone = profile.phone_number
+        profile.phone_number = new_phone
+        db.commit()
+        db.close()
+        return {"status": "ok", "old_phone": old_phone, "new_phone": new_phone}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/admin/profile-by-userid/{user_id}")
+def admin_get_profile_by_userid(user_id: str, secret: str):
+    """Get profile by user_id"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+
+    from app.db.database import SessionLocal
+    from app.models.models import Profile
+
+    try:
+        db = SessionLocal()
+        profile = db.query(Profile).filter(Profile.user_id == user_id).first()
+        if not profile:
+            db.close()
+            return {"status": "not_found", "user_id": user_id}
+
+        result = {
+            "status": "found",
+            "profile": {
+                "user_id": profile.user_id,
+                "legal_first_name": profile.legal_first_name,
+                "legal_last_name": profile.legal_last_name,
+                "email": profile.email,
+                "phone_number": profile.phone_number,
+                "dob": str(profile.dob) if profile.dob else None,
+                "gender": str(profile.gender) if profile.gender else None,
+            }
+        }
+        db.close()
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 @app.get("/admin/profile/{phone}")
 def admin_get_profile(phone: str, secret: str):
     """Get profile by phone number"""
