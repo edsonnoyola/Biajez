@@ -36,61 +36,99 @@ class RedisSessionManager:
     def get_session(self, phone_number: str) -> Dict:
         """
         Get session for a phone number
-        
+
         Args:
             phone_number: User's phone number
-            
+
         Returns:
             Session dict or new session if not found
         """
         key = f"whatsapp:session:{phone_number}"
-        
+
+        # Try Redis first (with retry)
         if self.enabled:
-            try:
-                data = self.redis_client.get(key)
-                if data:
-                    session = json.loads(data)
-                    print(f"📦 Loaded session for {phone_number} from Redis")
-                    return session
-            except Exception as e:
-                print(f"❌ Redis get error: {e}")
-        else:
-            # Fallback to in-memory
-            if phone_number in self.fallback_storage:
-                return self.fallback_storage[phone_number]
-        
+            for attempt in range(2):
+                try:
+                    # Verify connection is still alive
+                    self.redis_client.ping()
+                    data = self.redis_client.get(key)
+                    if data:
+                        session = json.loads(data)
+                        pending_flights = len(session.get('pending_flights', []))
+                        print(f"📦 REDIS GET {phone_number}: pending_flights={pending_flights}")
+                        return session
+                    else:
+                        print(f"📦 REDIS GET {phone_number}: no session found, creating new")
+                        return self._create_new_session()
+                except Exception as e:
+                    print(f"❌ Redis get error (attempt {attempt+1}): {e}")
+                    if attempt == 0:
+                        # Try to reconnect
+                        try:
+                            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+                            self.redis_client = redis.from_url(redis_url, decode_responses=True)
+                            self.redis_client.ping()
+                            print("🔄 Redis reconnected")
+                        except:
+                            self.enabled = False
+                            print("⚠️ Redis reconnect failed, switching to fallback")
+
+        # Fallback to in-memory
+        print(f"⚠️ FALLBACK GET {phone_number} (Redis enabled={self.enabled})")
+        if phone_number in self.fallback_storage:
+            session = self.fallback_storage[phone_number]
+            pending_flights = len(session.get('pending_flights', []))
+            print(f"   Found in fallback: pending_flights={pending_flights}")
+            return session
+
         # Create new session
+        print(f"   Creating new session in fallback")
         return self._create_new_session()
     
     def save_session(self, phone_number: str, session: Dict, ttl: int = 3600):
         """
         Save session with TTL
-        
+
         Args:
             phone_number: User's phone number
             session: Session data to save
             ttl: Time to live in seconds (default 1 hour)
         """
         key = f"whatsapp:session:{phone_number}"
-        
+
         # Add last updated timestamp
         session["last_updated"] = datetime.now().isoformat()
-        
+        pending_flights = len(session.get('pending_flights', []))
+
+        # Try Redis first (with retry)
         if self.enabled:
-            try:
-                self.redis_client.setex(
-                    key,
-                    ttl,
-                    json.dumps(session, default=str)
-                )
-                print(f"💾 Saved session for {phone_number} (TTL: {ttl}s)")
-            except Exception as e:
-                print(f"❌ Redis save error: {e}")
-                # Fallback
-                self.fallback_storage[phone_number] = session
-        else:
-            # In-memory fallback
-            self.fallback_storage[phone_number] = session
+            for attempt in range(2):
+                try:
+                    # Verify connection is still alive
+                    self.redis_client.ping()
+                    self.redis_client.setex(
+                        key,
+                        ttl,
+                        json.dumps(session, default=str)
+                    )
+                    print(f"💾 REDIS SAVE {phone_number}: pending_flights={pending_flights}")
+                    return  # Success
+                except Exception as e:
+                    print(f"❌ Redis save error (attempt {attempt+1}): {e}")
+                    if attempt == 0:
+                        # Try to reconnect
+                        try:
+                            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+                            self.redis_client = redis.from_url(redis_url, decode_responses=True)
+                            self.redis_client.ping()
+                            print("🔄 Redis reconnected for save")
+                        except:
+                            self.enabled = False
+                            print("⚠️ Redis reconnect failed, switching to fallback")
+
+        # Fallback to in-memory (always save to fallback as backup)
+        print(f"⚠️ FALLBACK SAVE {phone_number}: pending_flights={pending_flights}")
+        self.fallback_storage[phone_number] = session
     
     def delete_session(self, phone_number: str):
         """Delete a session"""

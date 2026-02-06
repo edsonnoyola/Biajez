@@ -626,6 +626,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     return {"status": "ok"}
         
         # Check if selecting flight by number
+        print(f"🔍 DEBUG Flight Selection: msg='{incoming_msg}', isdigit={incoming_msg.strip().isdigit()}, pending_flights={len(session.get('pending_flights', []))}, redis_enabled={session_manager.enabled}")
         if incoming_msg.strip().isdigit() and session.get("pending_flights"):
             flight_num = int(incoming_msg.strip()) - 1
             if 0 <= flight_num < len(session["pending_flights"]):

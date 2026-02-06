@@ -366,6 +366,66 @@ def admin_logs(secret: str, lines: int = 50):
     }
 
 
+@app.get("/admin/redis-status")
+def admin_redis_status(secret: str):
+    """Check Redis connectivity and session data"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+
+    from app.services.whatsapp_redis import session_manager
+    import redis
+
+    result = {
+        "redis_url_set": bool(os.getenv("REDIS_URL")),
+        "session_manager_enabled": session_manager.enabled,
+        "fallback_sessions": len(session_manager.fallback_storage),
+        "redis_ping": None,
+        "test_set_get": None,
+    }
+
+    # Test Redis connection
+    if session_manager.enabled:
+        try:
+            session_manager.redis_client.ping()
+            result["redis_ping"] = "OK"
+        except Exception as e:
+            result["redis_ping"] = f"FAILED: {e}"
+
+        # Test set/get
+        try:
+            session_manager.redis_client.setex("test_key", 10, "test_value")
+            val = session_manager.redis_client.get("test_key")
+            result["test_set_get"] = "OK" if val == "test_value" else f"MISMATCH: {val}"
+        except Exception as e:
+            result["test_set_get"] = f"FAILED: {e}"
+
+    return result
+
+
+@app.get("/admin/session/{phone}")
+def admin_get_session(phone: str, secret: str):
+    """View a user's session data"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+
+    from app.services.whatsapp_redis import session_manager
+
+    session = session_manager.get_session(phone)
+    return {
+        "phone": phone,
+        "redis_enabled": session_manager.enabled,
+        "session": {
+            "user_id": session.get("user_id"),
+            "pending_flights": len(session.get("pending_flights", [])),
+            "pending_hotels": len(session.get("pending_hotels", [])),
+            "selected_flight": bool(session.get("selected_flight")),
+            "selected_hotel": bool(session.get("selected_hotel")),
+            "last_updated": session.get("last_updated"),
+            "messages_count": len(session.get("messages", [])),
+        }
+    }
+
+
 @app.post("/admin/fix-db")
 def admin_fix_db(secret: str):
     """Manually add missing columns to PostgreSQL database"""
