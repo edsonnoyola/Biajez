@@ -307,6 +307,20 @@ def get_scheduler_status():
 # ============================================
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "biajez_admin_2026")
 
+@app.get("/admin/last-confirm/{phone}")
+def admin_last_confirm(phone: str, secret: str):
+    """Get debug info from the last confirmation attempt for a phone number"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+
+    from app.api.whatsapp_meta import whatsapp_webhook
+    if hasattr(whatsapp_webhook, '_last_confirm_debug'):
+        info = whatsapp_webhook._last_confirm_debug.get(phone)
+        if info:
+            return {"status": "ok", "debug": info}
+    return {"status": "ok", "debug": None, "message": "No confirmation attempt recorded for this phone"}
+
+
 @app.post("/admin/restart")
 def admin_restart(secret: str):
     """

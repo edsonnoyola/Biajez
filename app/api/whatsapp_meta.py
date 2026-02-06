@@ -955,89 +955,109 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             profile = None
             profile_complete = False
             user_id = session.get("user_id")
+            _debug_info = {"user_id": user_id, "from_number": from_number, "method": "none", "error": None}
 
             print(f"🔍 CONFIRM: Checking profile for user_id={user_id}, from_number={from_number}")
 
-            # BULLETPROOF: Try ALL methods to find the profile
-            with engine.connect() as conn:
+            try:
+                # BULLETPROOF: Try ALL methods to find the profile
                 row = None
+                with engine.connect() as conn:
 
-                # Method 1: Try by session user_id
-                if user_id:
-                    result = conn.execute(
-                        text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE user_id = :uid"),
-                        {"uid": user_id}
-                    )
-                    row = result.fetchone()
-                    if row:
-                        print(f"   ✅ Method 1 (user_id): found profile for {user_id}")
-                    else:
-                        print(f"   ❌ Method 1 (user_id): no profile for {user_id}")
-
-                # Method 2: Try by phone number variations
-                if not row:
-                    normalized = normalize_mx_number(from_number)
-                    phone_vars = [from_number, normalized, f"whatsapp_{from_number}", f"whatsapp_{normalized}"]
-                    print(f"   🔍 Method 2: trying phone variations {phone_vars}")
-                    for phone_var in phone_vars:
+                    # Method 1: Try by session user_id
+                    if user_id:
                         result = conn.execute(
-                            text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE phone_number = :phone OR user_id = :uid LIMIT 1"),
-                            {"phone": phone_var, "uid": phone_var}
+                            text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE user_id = :uid"),
+                            {"uid": user_id}
+                        )
+                        row = result.fetchone()
+                        if row:
+                            _debug_info["method"] = f"user_id={user_id}"
+                            print(f"   ✅ Method 1 (user_id): found profile for {user_id}")
+                        else:
+                            print(f"   ❌ Method 1 (user_id): no profile for {user_id}")
+
+                    # Method 2: Try by phone number variations
+                    if not row:
+                        normalized = normalize_mx_number(from_number)
+                        phone_vars = [from_number, normalized, f"whatsapp_{from_number}", f"whatsapp_{normalized}"]
+                        print(f"   🔍 Method 2: trying phone variations {phone_vars}")
+                        for phone_var in phone_vars:
+                            result = conn.execute(
+                                text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE phone_number = :phone OR user_id = :uid LIMIT 1"),
+                                {"phone": phone_var, "uid": phone_var}
+                            )
+                            row = result.fetchone()
+                            if row:
+                                user_id = row[0]
+                                session["user_id"] = user_id
+                                session_manager.save_session(from_number, session)
+                                _debug_info["method"] = f"phone={phone_var}"
+                                _debug_info["user_id"] = user_id
+                                print(f"   ✅ Method 2 (phone): found via {phone_var}, user_id={user_id}")
+                                break
+
+                    # Method 3: LAST RESORT - LIKE pattern
+                    if not row:
+                        print(f"   🔍 Method 3: last resort LIKE for {from_number}")
+                        result = conn.execute(
+                            text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE phone_number LIKE :p OR user_id LIKE :u LIMIT 1"),
+                            {"p": f"%{from_number[-10:]}%", "u": f"%{from_number[-10:]}%"}
                         )
                         row = result.fetchone()
                         if row:
                             user_id = row[0]
                             session["user_id"] = user_id
                             session_manager.save_session(from_number, session)
-                            print(f"   ✅ Method 2 (phone): found profile via {phone_var}, user_id={user_id}")
-                            break
+                            _debug_info["method"] = f"LIKE={from_number[-10:]}"
+                            print(f"   ✅ Method 3 (LIKE): found, user_id={user_id}")
 
-                # Method 3: LAST RESORT - try ANY profile with this phone in any column
-                if not row:
-                    print(f"   🔍 Method 3: last resort search for phone {from_number}")
-                    result = conn.execute(
-                        text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE phone_number LIKE :phone_pattern OR user_id LIKE :uid_pattern LIMIT 1"),
-                        {"phone_pattern": f"%{from_number[-10:]}%", "uid_pattern": f"%{from_number[-10:]}%"}
-                    )
-                    row = result.fetchone()
                     if row:
-                        user_id = row[0]
-                        session["user_id"] = user_id
-                        session_manager.save_session(from_number, session)
-                        print(f"   ✅ Method 3 (pattern): found profile via LIKE, user_id={user_id}")
+                        found_user_id, first_name, last_name, email, dob = row
+                        _debug_info["row"] = {"uid": found_user_id, "fn": str(first_name), "ln": str(last_name), "em": str(email), "dob": str(dob)}
+                        print(f"   ✅ PROFILE: {first_name} {last_name}, {email}, dob={dob}")
 
-                if row:
-                    found_user_id, first_name, last_name, email, dob = row
-                    print(f"   ✅ PROFILE FOUND: {first_name} {last_name}, {email}, dob={dob}")
+                        # Check fields
+                        checks = {
+                            "fn": bool(first_name),
+                            "fn_ok": first_name != "WhatsApp" if first_name else False,
+                            "ln": bool(last_name),
+                            "dob": bool(dob),
+                            "em": bool(email),
+                            "em_ok": "@whatsapp.temp" not in str(email) if email else True,
+                        }
+                        _debug_info["checks"] = checks
+                        print(f"   📋 Checks: {checks}")
 
-                    # Check each field individually for debugging
-                    checks = {
-                        "first_name_exists": bool(first_name),
-                        "first_name_not_default": first_name != "WhatsApp" if first_name else False,
-                        "last_name_exists": bool(last_name),
-                        "dob_exists": bool(dob),
-                        "email_exists": bool(email),
-                        "email_not_temp": "@whatsapp.temp" not in str(email) if email else True,
-                    }
-                    print(f"   📋 Field checks: {checks}")
+                        profile_complete = all(checks.values())
+                        _debug_info["profile_complete"] = profile_complete
 
-                    profile_complete = all(checks.values())
+                        profile = type('Profile', (), {
+                            'legal_first_name': first_name,
+                            'legal_last_name': last_name,
+                            'email': email,
+                            'dob': dob
+                        })()
 
-                    profile = type('Profile', (), {
-                        'legal_first_name': first_name,
-                        'legal_last_name': last_name,
-                        'email': email,
-                        'dob': dob
-                    })()
+                        if not session.get("user_id"):
+                            session["user_id"] = found_user_id
+                            session_manager.save_session(from_number, session)
+                    else:
+                        _debug_info["error"] = "NO_PROFILE_FOUND"
+                        print(f"   ❌ NO PROFILE FOUND for from_number={from_number}")
 
-                    # Ensure user_id is set for booking
-                    if not session.get("user_id"):
-                        session["user_id"] = found_user_id
-                        session_manager.save_session(from_number, session)
-                else:
-                    print(f"   ❌ NO PROFILE FOUND by any method for from_number={from_number}")
+            except Exception as e:
+                _debug_info["error"] = f"EXCEPTION: {type(e).__name__}: {str(e)}"
+                print(f"   💥 EXCEPTION in profile lookup: {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
 
-            print(f"📋 FINAL: profile_complete={profile_complete}, user_id={user_id}")
+            # Store debug info globally for admin endpoint
+            if not hasattr(whatsapp_webhook, '_last_confirm_debug'):
+                whatsapp_webhook._last_confirm_debug = {}
+            whatsapp_webhook._last_confirm_debug[from_number] = _debug_info
+
+            print(f"📋 FINAL: profile_complete={profile_complete}, debug={_debug_info}")
 
             flight = session["selected_flight"]
             offer_id = flight.get("offer_id")
@@ -1046,10 +1066,14 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             is_real_booking = offer_id and (offer_id.startswith("DUFFEL::") or offer_id.startswith("AMADEUS::"))
 
             if is_real_booking and not profile_complete:
-                # Log all details server-side
-                print(f"⚠️ PROFILE INCOMPLETE for booking: user_id={user_id}, from_number={from_number}, row_found={row is not None}")
+                # Show debug info in message so we can diagnose remotely
+                print(f"⚠️ BLOCKING: is_real={is_real_booking}, complete={profile_complete}, info={_debug_info}")
                 response_text = "⚠️ *Perfil incompleto*\n\n"
-                response_text += "Necesitas completar tu perfil para reservar.\n"
+                response_text += f"uid={_debug_info.get('user_id')}\n"
+                response_text += f"method={_debug_info.get('method')}\n"
+                response_text += f"error={_debug_info.get('error')}\n"
+                response_text += f"checks={_debug_info.get('checks')}\n"
+                response_text += f"complete={profile_complete}\n\n"
                 response_text += "Escribe *registrar* para completar tu perfil."
                 send_whatsapp_message(from_number, response_text)
                 return {"status": "ok"}
