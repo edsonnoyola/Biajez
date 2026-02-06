@@ -271,11 +271,14 @@ class BookingOrchestrator:
         # Prepare Passengers (multiple if num_passengers > 1)
         passengers_list = []
         for i in range(num_passengers):
-            # Fix phone number format for Duffel (requires E.164 format: +52XXXXXXXXXX)
+            # Fix phone number format for Duffel (requires E.164: +52XXXXXXXXXX)
             phone = profile.phone_number or "+16505550100"
-            # If it's a WhatsApp format number (525610016226), convert to E.164 (+525610016226)
-            if phone and not phone.startswith("+"):
-                phone = f"+{phone}"
+            # Normalize Mexican WhatsApp numbers: 521XXXXXXXXXX → +52XXXXXXXXXX
+            phone = phone.replace("+", "").strip()
+            if phone.startswith("521") and len(phone) == 13:
+                phone = "52" + phone[3:]  # Remove extra "1" from WhatsApp format
+            phone = f"+{phone}"
+            print(f"DEBUG: Duffel phone formatted: {phone}")
             
             passenger = {
                 "born_on": profile.dob.isoformat(),
