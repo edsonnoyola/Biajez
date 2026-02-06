@@ -317,7 +317,13 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         msg_lower = incoming_msg.lower().strip()
 
         # Obtener perfil para verificar si está en registro
-        reg_profile = db.query(Profile).filter(Profile.user_id == session.get("user_id")).first()
+        session_user_id = session.get("user_id")
+        print(f"🔍 DEBUG Registration: session_user_id={session_user_id}")
+
+        reg_profile = db.query(Profile).filter(Profile.user_id == session_user_id).first()
+        print(f"🔍 DEBUG Registration: reg_profile found={reg_profile is not None}")
+        if reg_profile:
+            print(f"🔍 DEBUG Registration: registration_step={reg_profile.registration_step}")
 
         # CANCELAR REGISTRO - permite salir del flujo de registro
         if msg_lower in ['cancelar', 'salir', 'exit', 'reset', 'reiniciar', 'borrar', 'limpiar'] and reg_profile and reg_profile.registration_step:
@@ -451,6 +457,9 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 reg_profile.passport_number = incoming_msg.strip().upper()
                 reg_profile.registration_step = "pasaporte_pais"
                 db.commit()
+                print(f"✅ DEBUG pasaporte_numero: Committed passport={reg_profile.passport_number}, next_step={reg_profile.registration_step}")
+                db.refresh(reg_profile)
+                print(f"✅ DEBUG after refresh: passport_number={reg_profile.passport_number}")
                 response_text = f"✅ Pasaporte: *{reg_profile.passport_number}*\n\n"
                 response_text += "🌍 *País emisor del pasaporte:*\n\n_Código de 2 letras (MX, US, ES, etc.)_"
 
@@ -458,6 +467,10 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 reg_profile.passport_country = incoming_msg.strip().upper()[:2]
                 reg_profile.registration_step = "pasaporte_vencimiento"
                 db.commit()
+                print(f"✅ DEBUG pasaporte_pais: Committed country={reg_profile.passport_country}, next_step={reg_profile.registration_step}")
+                # Verify commit worked
+                db.refresh(reg_profile)
+                print(f"✅ DEBUG after refresh: registration_step={reg_profile.registration_step}")
                 response_text = f"✅ País: *{reg_profile.passport_country}*\n\n"
                 response_text += "📅 *Fecha de vencimiento del pasaporte:*\n\n_Formato: DD/MM/AAAA_"
 
