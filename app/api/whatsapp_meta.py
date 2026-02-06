@@ -310,25 +310,31 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         # ============================================
         # REGISTRO DE PERFIL - HANDLER PRIORITARIO
         # (Debe ejecutarse ANTES de cualquier otro handler)
+        # Usa su propia sesión de DB para evitar issues con async
         # ============================================
         from app.models.models import Profile
+        from app.db.database import SessionLocal
         from datetime import datetime as dt
 
         msg_lower = incoming_msg.lower().strip()
 
-        # Obtener perfil para verificar si está en registro
-        session_user_id = session.get("user_id")
-        print(f"🔍 DEBUG Registration: session_user_id={session_user_id}")
+        # Usar sesión de DB dedicada para registro
+        reg_db = SessionLocal()
+        try:
+            # Obtener perfil para verificar si está en registro
+            session_user_id = session.get("user_id")
+            print(f"🔍 DEBUG Registration: session_user_id={session_user_id}")
 
-        reg_profile = db.query(Profile).filter(Profile.user_id == session_user_id).first()
-        print(f"🔍 DEBUG Registration: reg_profile found={reg_profile is not None}")
-        if reg_profile:
-            print(f"🔍 DEBUG Registration: registration_step={reg_profile.registration_step}")
+            reg_profile = reg_db.query(Profile).filter(Profile.user_id == session_user_id).first()
+            print(f"🔍 DEBUG Registration: reg_profile found={reg_profile is not None}")
+            if reg_profile:
+                print(f"🔍 DEBUG Registration: registration_step={reg_profile.registration_step}")
 
         # CANCELAR REGISTRO - permite salir del flujo de registro
         if msg_lower in ['cancelar', 'salir', 'exit', 'reset', 'reiniciar', 'borrar', 'limpiar'] and reg_profile and reg_profile.registration_step:
             reg_profile.registration_step = None
-            db.commit()
+            reg_db.commit()
+            reg_db.close()
 
             # Si es reset, también limpiar sesión
             if msg_lower in ['reset', 'reiniciar', 'borrar', 'limpiar']:
@@ -352,10 +358,11 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     passport_expiry=dt.strptime("2030-01-01", "%Y-%m-%d").date(),
                     passport_country="XX"
                 )
-                db.add(reg_profile)
+                reg_db.add(reg_profile)
 
             reg_profile.registration_step = "nombre"
-            db.commit()
+            reg_db.commit()
+            reg_db.close()
 
             response_text = "👤 *Registro de Perfil*\n\n"
             response_text += "Vamos a registrar tus datos para poder reservar vuelos.\n\n"
@@ -380,7 +387,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     reg_profile.legal_last_name = "."
 
                 reg_profile.registration_step = "email"
-                db.commit()
+                reg_db.commit()
                 response_text = f"✅ Nombre: *{reg_profile.legal_first_name} {reg_profile.legal_last_name}*\n\n"
                 response_text += "📧 *Paso 2/6:* ¿Cuál es tu *email*?\n\n"
                 response_text += "_Aquí recibirás confirmaciones de reserva_"
@@ -389,7 +396,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 if "@" in incoming_msg and "." in incoming_msg:
                     reg_profile.email = incoming_msg.strip().lower()
                     reg_profile.registration_step = "nacimiento"
-                    db.commit()
+                    reg_db.commit()
                     response_text = f"✅ Email: *{reg_profile.email}*\n\n"
                     response_text += "📅 *Paso 3/6:* ¿Cuál es tu *fecha de nacimiento*?\n\n"
                     response_text += "_Formato: DD/MM/AAAA (ejemplo: 15/03/1990)_"
@@ -413,7 +420,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
                     reg_profile.dob = parsed_date
                     reg_profile.registration_step = "genero"
-                    db.commit()
+                    reg_db.commit()
                     response_text = f"✅ Nacimiento: *{reg_profile.dob}*\n\n"
                     response_text += "🚻 *Paso 4/6:* ¿Cuál es tu *género*?\n\n"
                     response_text += "Responde: *M* (Masculino) o *F* (Femenino)"
@@ -425,7 +432,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 if genero in ["M", "F", "MASCULINO", "FEMENINO", "HOMBRE", "MUJER"]:
                     reg_profile.gender = "M" if genero in ["M", "MASCULINO", "HOMBRE"] else "F"
                     reg_profile.registration_step = "pasaporte"
-                    db.commit()
+                    reg_db.commit()
                     response_text = f"✅ Género: *{'Masculino' if reg_profile.gender == 'M' else 'Femenino'}*\n\n"
                     response_text += "🛂 *Paso 5/6:* ¿Tienes *pasaporte*?\n\n"
                     response_text += "Responde *SI* para registrarlo o *NO* para omitir\n"
@@ -436,14 +443,14 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             elif step == "pasaporte":
                 if incoming_msg.strip().lower() in ["si", "sí", "yes", "s"]:
                     reg_profile.registration_step = "pasaporte_numero"
-                    db.commit()
+                    reg_db.commit()
                     response_text = "🛂 *Número de pasaporte:*\n\n_Ingresa el número de tu pasaporte_"
                 elif incoming_msg.strip().lower() in ["no", "n", "omitir"]:
                     reg_profile.registration_step = None
                     reg_profile.passport_number = "N/A"
                     reg_profile.passport_country = "XX"
                     reg_profile.passport_expiry = dt.strptime("2099-01-01", "%Y-%m-%d").date()
-                    db.commit()
+                    reg_db.commit()
                     response_text = "✅ *¡Perfil registrado!*\n\n"
                     response_text += f"👤 {reg_profile.legal_first_name} {reg_profile.legal_last_name}\n"
                     response_text += f"📧 {reg_profile.email}\n"
@@ -456,21 +463,16 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             elif step == "pasaporte_numero":
                 reg_profile.passport_number = incoming_msg.strip().upper()
                 reg_profile.registration_step = "pasaporte_pais"
-                db.commit()
+                reg_db.commit()
                 print(f"✅ DEBUG pasaporte_numero: Committed passport={reg_profile.passport_number}, next_step={reg_profile.registration_step}")
-                db.refresh(reg_profile)
-                print(f"✅ DEBUG after refresh: passport_number={reg_profile.passport_number}")
                 response_text = f"✅ Pasaporte: *{reg_profile.passport_number}*\n\n"
                 response_text += "🌍 *País emisor del pasaporte:*\n\n_Código de 2 letras (MX, US, ES, etc.)_"
 
             elif step == "pasaporte_pais":
                 reg_profile.passport_country = incoming_msg.strip().upper()[:2]
                 reg_profile.registration_step = "pasaporte_vencimiento"
-                db.commit()
+                reg_db.commit()
                 print(f"✅ DEBUG pasaporte_pais: Committed country={reg_profile.passport_country}, next_step={reg_profile.registration_step}")
-                # Verify commit worked
-                db.refresh(reg_profile)
-                print(f"✅ DEBUG after refresh: registration_step={reg_profile.registration_step}")
                 response_text = f"✅ País: *{reg_profile.passport_country}*\n\n"
                 response_text += "📅 *Fecha de vencimiento del pasaporte:*\n\n_Formato: DD/MM/AAAA_"
 
@@ -489,7 +491,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                         reg_profile.passport_expiry = parsed_date
 
                     reg_profile.registration_step = None
-                    db.commit()
+                    reg_db.commit()
                     response_text = "✅ *¡Perfil completo!*\n\n"
                     response_text += f"👤 {reg_profile.legal_first_name} {reg_profile.legal_last_name}\n"
                     response_text += f"📧 {reg_profile.email}\n"
@@ -502,8 +504,12 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     response_text = "❌ Fecha inválida. Usa formato: *DD/MM/AAAA*"
 
             if response_text:
+                reg_db.close()
                 send_whatsapp_message(from_number, response_text)
                 return {"status": "ok"}
+
+        # Cerrar reg_db si no se usó
+        reg_db.close()
 
         # ============================================
         # FIN HANDLER DE REGISTRO PRIORITARIO
