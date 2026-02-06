@@ -15,7 +15,10 @@ class RedisSessionManager:
     def __init__(self):
         """Initialize Redis connection"""
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        
+
+        # Always initialize fallback storage (used as backup even when Redis works)
+        self.fallback_storage = {}
+
         try:
             self.redis_client = redis.from_url(
                 redis_url,
@@ -31,7 +34,6 @@ class RedisSessionManager:
             print(f"⚠️ Redis not available: {e}")
             print("   Falling back to in-memory sessions")
             self.enabled = False
-            self.fallback_storage = {}
     
     def get_session(self, phone_number: str) -> Dict:
         """
