@@ -87,7 +87,7 @@ class RedisSessionManager:
         print(f"   Creating new session in fallback")
         return self._create_new_session()
     
-    def save_session(self, phone_number: str, session: Dict, ttl: int = 3600):
+    def save_session(self, phone_number: str, session: Dict, ttl: int = 14400):
         """
         Save session with TTL
 

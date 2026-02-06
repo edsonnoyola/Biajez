@@ -906,10 +906,20 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
         # Hotel selection moved above to prevent AI interception
         
         # Check if confirming booking
-        # DEBUG: Log session state to diagnose confirmation issues
         # IMPORTANT: Skip this handler if user is in profile registration flow
-        profile_for_reg_check = db.query(Profile).filter(Profile.user_id == session.get("user_id")).first()
-        user_in_registration = profile_for_reg_check and profile_for_reg_check.registration_step
+        # Use raw SQL instead of ORM for reliability on PostgreSQL
+        user_in_registration = False
+        _confirm_uid = session.get("user_id")
+        if _confirm_uid:
+            with engine.connect() as conn:
+                _reg_result = conn.execute(
+                    text("SELECT registration_step FROM profiles WHERE user_id = :uid"),
+                    {"uid": _confirm_uid}
+                )
+                _reg_row = _reg_result.fetchone()
+                if _reg_row and _reg_row[0]:
+                    user_in_registration = True
+                    print(f"⚠️ User {_confirm_uid} is in registration step: {_reg_row[0]}")
 
         if incoming_msg.lower() in ['si', 'sí', 'yes', 'confirmar'] and not user_in_registration:
             print(f"🔍 DEBUG Confirmation attempt:")
@@ -917,7 +927,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             print(f"   - incoming_msg: {incoming_msg}")
             print(f"   - selected_flight exists: {bool(session.get('selected_flight'))}")
             print(f"   - selected_hotel exists: {bool(session.get('selected_hotel'))}")
-            print(f"   - session keys: {list(session.keys())}")
+            print(f"   - session user_id: {session.get('user_id')}")
 
             # Handle case where nothing is selected (session lost due to no Redis)
             if not session.get("selected_flight") and not session.get("selected_hotel"):
@@ -946,49 +956,73 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             profile_complete = False
             user_id = session.get("user_id")
 
-            print(f"🔍 Checking profile for user_id: {user_id}, from_number: {from_number}")
+            print(f"🔍 CONFIRM: Checking profile for user_id={user_id}, from_number={from_number}")
 
-            # BULLETPROOF: Try user_id first, then fallback to phone number lookup
+            # BULLETPROOF: Try ALL methods to find the profile
             with engine.connect() as conn:
                 row = None
 
-                # Try by user_id if available
+                # Method 1: Try by session user_id
                 if user_id:
                     result = conn.execute(
                         text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE user_id = :uid"),
                         {"uid": user_id}
                     )
                     row = result.fetchone()
+                    if row:
+                        print(f"   ✅ Method 1 (user_id): found profile for {user_id}")
+                    else:
+                        print(f"   ❌ Method 1 (user_id): no profile for {user_id}")
 
-                # Fallback: search by phone number directly
+                # Method 2: Try by phone number variations
                 if not row:
                     normalized = normalize_mx_number(from_number)
-                    for phone_var in [from_number, normalized, f"whatsapp_{from_number}", f"whatsapp_{normalized}"]:
+                    phone_vars = [from_number, normalized, f"whatsapp_{from_number}", f"whatsapp_{normalized}"]
+                    print(f"   🔍 Method 2: trying phone variations {phone_vars}")
+                    for phone_var in phone_vars:
                         result = conn.execute(
                             text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE phone_number = :phone OR user_id = :uid LIMIT 1"),
                             {"phone": phone_var, "uid": phone_var}
                         )
                         row = result.fetchone()
                         if row:
-                            # Fix the session while we're at it
                             user_id = row[0]
                             session["user_id"] = user_id
                             session_manager.save_session(from_number, session)
-                            print(f"🔄 Fixed session user_id from phone lookup: {user_id}")
+                            print(f"   ✅ Method 2 (phone): found profile via {phone_var}, user_id={user_id}")
                             break
+
+                # Method 3: LAST RESORT - try ANY profile with this phone in any column
+                if not row:
+                    print(f"   🔍 Method 3: last resort search for phone {from_number}")
+                    result = conn.execute(
+                        text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE phone_number LIKE :phone_pattern OR user_id LIKE :uid_pattern LIMIT 1"),
+                        {"phone_pattern": f"%{from_number[-10:]}%", "uid_pattern": f"%{from_number[-10:]}%"}
+                    )
+                    row = result.fetchone()
+                    if row:
+                        user_id = row[0]
+                        session["user_id"] = user_id
+                        session_manager.save_session(from_number, session)
+                        print(f"   ✅ Method 3 (pattern): found profile via LIKE, user_id={user_id}")
 
                 if row:
                     found_user_id, first_name, last_name, email, dob = row
-                    print(f"✅ Found profile: {first_name} {last_name}, {email}, dob={dob}")
+                    print(f"   ✅ PROFILE FOUND: {first_name} {last_name}, {email}, dob={dob}")
 
-                    profile_complete = (
-                        first_name and
-                        first_name != "WhatsApp" and
-                        last_name and
-                        dob and
-                        email and
-                        "@whatsapp.temp" not in str(email)
-                    )
+                    # Check each field individually for debugging
+                    checks = {
+                        "first_name_exists": bool(first_name),
+                        "first_name_not_default": first_name != "WhatsApp" if first_name else False,
+                        "last_name_exists": bool(last_name),
+                        "dob_exists": bool(dob),
+                        "email_exists": bool(email),
+                        "email_not_temp": "@whatsapp.temp" not in str(email) if email else True,
+                    }
+                    print(f"   📋 Field checks: {checks}")
+
+                    profile_complete = all(checks.values())
+
                     profile = type('Profile', (), {
                         'legal_first_name': first_name,
                         'legal_last_name': last_name,
@@ -1001,9 +1035,9 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                         session["user_id"] = found_user_id
                         session_manager.save_session(from_number, session)
                 else:
-                    print(f"❌ No profile found for user_id={user_id} or phone={from_number}")
+                    print(f"   ❌ NO PROFILE FOUND by any method for from_number={from_number}")
 
-            print(f"📋 Profile complete: {profile_complete}")
+            print(f"📋 FINAL: profile_complete={profile_complete}, user_id={user_id}")
 
             flight = session["selected_flight"]
             offer_id = flight.get("offer_id")
@@ -1012,14 +1046,10 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             is_real_booking = offer_id and (offer_id.startswith("DUFFEL::") or offer_id.startswith("AMADEUS::"))
 
             if is_real_booking and not profile_complete:
-                # DIAGNOSTIC: show exactly why profile check failed
+                # Log all details server-side
+                print(f"⚠️ PROFILE INCOMPLETE for booking: user_id={user_id}, from_number={from_number}, row_found={row is not None}")
                 response_text = "⚠️ *Perfil incompleto*\n\n"
-                response_text += f"DEBUG user_id={user_id}\n"
-                response_text += f"DEBUG from_number={from_number}\n"
-                response_text += f"DEBUG row_found={row is not None}\n"
-                if row:
-                    response_text += f"DEBUG row={row}\n"
-                response_text += f"DEBUG profile_complete={profile_complete}\n\n"
+                response_text += "Necesitas completar tu perfil para reservar.\n"
                 response_text += "Escribe *registrar* para completar tu perfil."
                 send_whatsapp_message(from_number, response_text)
                 return {"status": "ok"}

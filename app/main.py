@@ -428,61 +428,92 @@ def admin_get_session(phone: str, secret: str):
 
 @app.get("/admin/test-confirm/{phone}")
 def admin_test_confirm(phone: str, secret: str):
-    """Simulate EXACTLY what confirmation handler does - for debugging"""
+    """Simulate the FULL webhook flow for confirmation - including session init"""
     if secret != ADMIN_SECRET:
         return {"status": "error", "message": "Invalid secret"}
 
     from sqlalchemy import text
     from app.services.whatsapp_redis import session_manager
+    from app.api.whatsapp_meta import normalize_mx_number
 
-    # Step 1: Load session (same as webhook)
+    results = {}
+
+    # Step 1: Load session (same as webhook line 269)
     session = session_manager.get_session(phone)
-    user_id = session.get("user_id")
-
-    results = {
-        "step1_session": {"user_id": user_id, "selected_flight": bool(session.get("selected_flight"))},
-        "step2_user_id_query": None,
-        "step3_phone_fallback": None,
-        "step4_profile_complete": False,
-        "step5_fields": {},
+    results["step1_raw_session"] = {
+        "user_id": session.get("user_id"),
+        "selected_flight": bool(session.get("selected_flight")),
+        "pending_flights": len(session.get("pending_flights", [])),
     }
 
-    # Step 2: Try user_id query (same as confirmation handler)
-    row = None
-    with engine.connect() as conn:
-        if user_id:
-            result = conn.execute(
-                text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE user_id = :uid"),
-                {"uid": user_id}
-            )
-            row = result.fetchone()
-            results["step2_user_id_query"] = {"found": row is not None, "user_id_used": user_id}
-
-        # Step 3: Phone fallback (same as confirmation handler)
-        if not row:
-            from app.api.whatsapp_meta import normalize_mx_number
-            normalized = normalize_mx_number(phone)
-            for phone_var in [phone, normalized, f"whatsapp_{phone}", f"whatsapp_{normalized}"]:
-                result = conn.execute(
-                    text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE phone_number = :phone OR user_id = :uid LIMIT 1"),
-                    {"phone": phone_var, "uid": phone_var}
-                )
+    # Step 2: Session init - same as webhook lines 275-325
+    user_id = session.get("user_id")
+    if not user_id:
+        normalized_phone = normalize_mx_number(phone)
+        phone_variations = [phone, normalized_phone, f"whatsapp_{phone}", f"whatsapp_{normalized_phone}"]
+        with engine.connect() as conn:
+            for phone_var in phone_variations:
+                result = conn.execute(text("SELECT user_id FROM profiles WHERE phone_number = :phone LIMIT 1"), {"phone": phone_var})
                 row = result.fetchone()
                 if row:
-                    results["step3_phone_fallback"] = {"found": True, "phone_var_matched": phone_var}
+                    user_id = row[0]
+                    results["step2_session_init"] = {"method": "phone_number", "matched": phone_var, "user_id": user_id}
+                    break
+            if not user_id:
+                for phone_var in phone_variations:
+                    result = conn.execute(text("SELECT user_id FROM profiles WHERE user_id = :uid LIMIT 1"), {"uid": phone_var})
+                    row = result.fetchone()
+                    if row:
+                        user_id = row[0]
+                        results["step2_session_init"] = {"method": "user_id", "matched": phone_var, "user_id": user_id}
+                        break
+        if not user_id:
+            user_id = f"whatsapp_{phone}"
+            results["step2_session_init"] = {"method": "new_user", "user_id": user_id}
+        session["user_id"] = user_id
+    else:
+        results["step2_session_init"] = {"method": "already_set", "user_id": user_id}
+
+    # Step 3: Registration check - same as webhook (now raw SQL)
+    user_in_registration = False
+    with engine.connect() as conn:
+        _reg_result = conn.execute(text("SELECT registration_step FROM profiles WHERE user_id = :uid"), {"uid": user_id})
+        _reg_row = _reg_result.fetchone()
+        if _reg_row and _reg_row[0]:
+            user_in_registration = True
+    results["step3_registration_check"] = {"in_registration": user_in_registration, "reg_step": str(_reg_row[0]) if _reg_row else None}
+
+    # Step 4: Profile lookup - same as confirmation handler (3 methods)
+    row = None
+    profile_complete = False
+    with engine.connect() as conn:
+        # Method 1: user_id
+        if user_id:
+            result = conn.execute(text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE user_id = :uid"), {"uid": user_id})
+            row = result.fetchone()
+            results["step4_method1_userid"] = {"found": row is not None}
+
+        # Method 2: phone variations
+        if not row:
+            normalized = normalize_mx_number(phone)
+            for phone_var in [phone, normalized, f"whatsapp_{phone}", f"whatsapp_{normalized}"]:
+                result = conn.execute(text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE phone_number = :phone OR user_id = :uid LIMIT 1"), {"phone": phone_var, "uid": phone_var})
+                row = result.fetchone()
+                if row:
+                    results["step4_method2_phone"] = {"found": True, "matched": phone_var}
                     break
             if not row:
-                results["step3_phone_fallback"] = {"found": False, "tried": [phone, normalized, f"whatsapp_{phone}", f"whatsapp_{normalized}"]}
+                results["step4_method2_phone"] = {"found": False}
 
-        # Step 4: Check profile_complete
+        # Method 3: LIKE pattern
+        if not row:
+            result = conn.execute(text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE phone_number LIKE :p OR user_id LIKE :u LIMIT 1"), {"p": f"%{phone[-10:]}%", "u": f"%{phone[-10:]}%"})
+            row = result.fetchone()
+            results["step4_method3_like"] = {"found": row is not None}
+
         if row:
             found_user_id, first_name, last_name, email, dob = row
-            results["step5_fields"] = {
-                "user_id": found_user_id,
-                "first_name": str(first_name),
-                "last_name": str(last_name),
-                "email": str(email),
-                "dob": str(dob),
+            checks = {
                 "first_name_truthy": bool(first_name),
                 "first_name_not_whatsapp": first_name != "WhatsApp" if first_name else False,
                 "last_name_truthy": bool(last_name),
@@ -490,13 +521,20 @@ def admin_test_confirm(phone: str, secret: str):
                 "email_truthy": bool(email),
                 "email_no_temp": "@whatsapp.temp" not in str(email) if email else True,
             }
-            profile_complete = (
-                first_name and first_name != "WhatsApp" and
-                last_name and dob and email and
-                "@whatsapp.temp" not in str(email)
-            )
-            results["step4_profile_complete"] = bool(profile_complete)
+            profile_complete = all(checks.values())
+            results["step5_profile"] = {
+                "user_id": found_user_id,
+                "first_name": str(first_name),
+                "last_name": str(last_name),
+                "email": str(email),
+                "dob": str(dob),
+                "checks": checks,
+                "profile_complete": profile_complete,
+            }
+        else:
+            results["step5_profile"] = {"error": "NO PROFILE FOUND BY ANY METHOD"}
 
+    results["FINAL_VERDICT"] = "BOOKING WOULD PROCEED" if profile_complete else "WOULD SHOW PERFIL INCOMPLETO"
     return results
 
 
