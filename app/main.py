@@ -35,6 +35,7 @@ from app.api import loyalty
 from app.api import ancillary
 from app.api import hold_orders
 from app.api import price_alerts
+from app.api import order_endpoints
 
 # NEW: Import scheduler service
 from app.services.scheduler_service import scheduler_service
@@ -269,6 +270,7 @@ app.include_router(loyalty.router)
 app.include_router(ancillary.router)
 app.include_router(hold_orders.router)
 app.include_router(price_alerts.router)
+app.include_router(order_endpoints.router)
 
 
 @app.get("/")

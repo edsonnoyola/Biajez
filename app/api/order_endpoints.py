@@ -1,3 +1,9 @@
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from app.db.database import get_db
+from app.services.order_management import OrderManager
+
+router = APIRouter()
 
 # ===== ORDER MANAGEMENT ENDPOINTS =====
 
@@ -21,7 +27,7 @@ def get_cancellation_quote(order_id: str, db: Session = Depends(get_db)):
 
 @router.post("/v1/orders/cancel/{order_id}")
 def cancel_order(order_id: str, user_id: str, db: Session = Depends(get_db)):
-    """Cancel order and process refund"""
+    """Cancel order and process refund (2-step Duffel: quote + confirm + DB update)"""
     order_manager = OrderManager(db)
     return order_manager.cancel_order(order_id, user_id)
 
