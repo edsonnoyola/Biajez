@@ -268,13 +268,8 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         # Get or create session with Redis
         session = session_manager.get_session(from_number)
 
-        # DEBUG: Log session state for confirmation debugging
-        print(f"🔍 DEBUG Session loaded for {from_number}:")
-        print(f"   - selected_hotel: {bool(session.get('selected_hotel'))}")
-        print(f"   - selected_flight: {bool(session.get('selected_flight'))}")
-        print(f"   - pending_hotels: {len(session.get('pending_hotels', []))}")
-        print(f"   - pending_flights: {len(session.get('pending_flights', []))}")
-        print(f"   - incoming_msg: {incoming_msg[:50] if incoming_msg else 'None'}...")
+        # DEBUG: Log session state
+        print(f"🔍 SESSION for {from_number}: user_id={session.get('user_id')}, flights={len(session.get('pending_flights', []))}, selected={bool(session.get('selected_flight'))}, msg={incoming_msg[:30] if incoming_msg else 'None'}")
 
         # Initialize session if new user
         if not session.get("user_id"):
@@ -951,37 +946,62 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             profile_complete = False
             user_id = session.get("user_id")
 
-            print(f"🔍 Checking profile for user_id: {user_id}")
+            print(f"🔍 Checking profile for user_id: {user_id}, from_number: {from_number}")
 
-            if user_id:
-                with engine.connect() as conn:
+            # BULLETPROOF: Try user_id first, then fallback to phone number lookup
+            with engine.connect() as conn:
+                row = None
+
+                # Try by user_id if available
+                if user_id:
                     result = conn.execute(
-                        text("SELECT legal_first_name, legal_last_name, email, dob FROM profiles WHERE user_id = :uid"),
+                        text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE user_id = :uid"),
                         {"uid": user_id}
                     )
                     row = result.fetchone()
-                    if row:
-                        first_name, last_name, email, dob = row
-                        print(f"✅ Found profile: {first_name} {last_name}, {email}, dob={dob}")
 
-                        # Validate profile has real data (not default values)
-                        profile_complete = (
-                            first_name and
-                            first_name != "WhatsApp" and
-                            last_name and
-                            dob and
-                            email and
-                            "@whatsapp.temp" not in str(email)
+                # Fallback: search by phone number directly
+                if not row:
+                    normalized = normalize_mx_number(from_number)
+                    for phone_var in [from_number, normalized, f"whatsapp_{from_number}", f"whatsapp_{normalized}"]:
+                        result = conn.execute(
+                            text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE phone_number = :phone OR user_id = :uid LIMIT 1"),
+                            {"phone": phone_var, "uid": phone_var}
                         )
-                        # Create a simple profile object for later use
-                        profile = type('Profile', (), {
-                            'legal_first_name': first_name,
-                            'legal_last_name': last_name,
-                            'email': email,
-                            'dob': dob
-                        })()
-                    else:
-                        print(f"❌ No profile found for user_id: {user_id}")
+                        row = result.fetchone()
+                        if row:
+                            # Fix the session while we're at it
+                            user_id = row[0]
+                            session["user_id"] = user_id
+                            session_manager.save_session(from_number, session)
+                            print(f"🔄 Fixed session user_id from phone lookup: {user_id}")
+                            break
+
+                if row:
+                    found_user_id, first_name, last_name, email, dob = row
+                    print(f"✅ Found profile: {first_name} {last_name}, {email}, dob={dob}")
+
+                    profile_complete = (
+                        first_name and
+                        first_name != "WhatsApp" and
+                        last_name and
+                        dob and
+                        email and
+                        "@whatsapp.temp" not in str(email)
+                    )
+                    profile = type('Profile', (), {
+                        'legal_first_name': first_name,
+                        'legal_last_name': last_name,
+                        'email': email,
+                        'dob': dob
+                    })()
+
+                    # Ensure user_id is set for booking
+                    if not session.get("user_id"):
+                        session["user_id"] = found_user_id
+                        session_manager.save_session(from_number, session)
+                else:
+                    print(f"❌ No profile found for user_id={user_id} or phone={from_number}")
 
             print(f"📋 Profile complete: {profile_complete}")
 
