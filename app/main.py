@@ -426,6 +426,80 @@ def admin_get_session(phone: str, secret: str):
     }
 
 
+@app.get("/admin/test-confirm/{phone}")
+def admin_test_confirm(phone: str, secret: str):
+    """Simulate EXACTLY what confirmation handler does - for debugging"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+
+    from sqlalchemy import text
+    from app.services.whatsapp_redis import session_manager
+
+    # Step 1: Load session (same as webhook)
+    session = session_manager.get_session(phone)
+    user_id = session.get("user_id")
+
+    results = {
+        "step1_session": {"user_id": user_id, "selected_flight": bool(session.get("selected_flight"))},
+        "step2_user_id_query": None,
+        "step3_phone_fallback": None,
+        "step4_profile_complete": False,
+        "step5_fields": {},
+    }
+
+    # Step 2: Try user_id query (same as confirmation handler)
+    row = None
+    with engine.connect() as conn:
+        if user_id:
+            result = conn.execute(
+                text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE user_id = :uid"),
+                {"uid": user_id}
+            )
+            row = result.fetchone()
+            results["step2_user_id_query"] = {"found": row is not None, "user_id_used": user_id}
+
+        # Step 3: Phone fallback (same as confirmation handler)
+        if not row:
+            from app.api.whatsapp_meta import normalize_mx_number
+            normalized = normalize_mx_number(phone)
+            for phone_var in [phone, normalized, f"whatsapp_{phone}", f"whatsapp_{normalized}"]:
+                result = conn.execute(
+                    text("SELECT user_id, legal_first_name, legal_last_name, email, dob FROM profiles WHERE phone_number = :phone OR user_id = :uid LIMIT 1"),
+                    {"phone": phone_var, "uid": phone_var}
+                )
+                row = result.fetchone()
+                if row:
+                    results["step3_phone_fallback"] = {"found": True, "phone_var_matched": phone_var}
+                    break
+            if not row:
+                results["step3_phone_fallback"] = {"found": False, "tried": [phone, normalized, f"whatsapp_{phone}", f"whatsapp_{normalized}"]}
+
+        # Step 4: Check profile_complete
+        if row:
+            found_user_id, first_name, last_name, email, dob = row
+            results["step5_fields"] = {
+                "user_id": found_user_id,
+                "first_name": str(first_name),
+                "last_name": str(last_name),
+                "email": str(email),
+                "dob": str(dob),
+                "first_name_truthy": bool(first_name),
+                "first_name_not_whatsapp": first_name != "WhatsApp" if first_name else False,
+                "last_name_truthy": bool(last_name),
+                "dob_truthy": bool(dob),
+                "email_truthy": bool(email),
+                "email_no_temp": "@whatsapp.temp" not in str(email) if email else True,
+            }
+            profile_complete = (
+                first_name and first_name != "WhatsApp" and
+                last_name and dob and email and
+                "@whatsapp.temp" not in str(email)
+            )
+            results["step4_profile_complete"] = bool(profile_complete)
+
+    return results
+
+
 @app.post("/admin/update-profile/{phone}")
 def admin_update_profile(phone: str, secret: str, first_name: str = None, last_name: str = None, email: str = None, dob: str = None, passport: str = None, passport_country: str = None, passport_expiry: str = None):
     """Force update a profile with correct data"""
