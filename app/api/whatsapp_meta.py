@@ -320,15 +320,15 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
         # Usar sesión de DB dedicada para registro
         reg_db = SessionLocal()
-        try:
-            # Obtener perfil para verificar si está en registro
-            session_user_id = session.get("user_id")
-            print(f"🔍 DEBUG Registration: session_user_id={session_user_id}")
 
-            reg_profile = reg_db.query(Profile).filter(Profile.user_id == session_user_id).first()
-            print(f"🔍 DEBUG Registration: reg_profile found={reg_profile is not None}")
-            if reg_profile:
-                print(f"🔍 DEBUG Registration: registration_step={reg_profile.registration_step}")
+        # Obtener perfil para verificar si está en registro
+        session_user_id = session.get("user_id")
+        print(f"🔍 DEBUG Registration: session_user_id={session_user_id}")
+
+        reg_profile = reg_db.query(Profile).filter(Profile.user_id == session_user_id).first()
+        print(f"🔍 DEBUG Registration: reg_profile found={reg_profile is not None}")
+        if reg_profile:
+            print(f"🔍 DEBUG Registration: registration_step={reg_profile.registration_step}")
 
         # CANCELAR REGISTRO - permite salir del flujo de registro
         if msg_lower in ['cancelar', 'salir', 'exit', 'reset', 'reiniciar', 'borrar', 'limpiar'] and reg_profile and reg_profile.registration_step:
