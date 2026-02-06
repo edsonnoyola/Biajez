@@ -194,24 +194,42 @@ class OrderChangeService:
         # 2. Verify the order belongs to the user
         order_id = offer.get("order_change_id")  # This links back to the order
         
-        # 3. Create the order change (confirmation)
+        # 3. Create the pending order change
         url = f"{self.base_url}/air/order_changes"
         payload = {
             "data": {
                 "selected_order_change_offer": offer_id
             }
         }
-        
+
         try:
             response = requests.post(url, headers=self.headers, json=payload)
             response.raise_for_status()
             order_change = response.json()["data"]
-            
-            # 4. Update database with new order information via raw SQL
+            change_id = order_change["id"]
+            print(f"📋 Order change created: {change_id}")
+
+            # 4. Confirm the order change with payment (2-step like cancellation)
+            confirm_url = f"{self.base_url}/air/order_changes/{change_id}/actions/confirm"
+            confirm_payload = {
+                "data": {
+                    "payment": {
+                        "amount": str(payment_amount),
+                        "currency": "USD",
+                        "type": "balance"
+                    }
+                }
+            }
+            confirm_response = requests.post(confirm_url, headers=self.headers, json=confirm_payload)
+            confirm_response.raise_for_status()
+            confirmed_change = confirm_response.json()["data"]
+            print(f"✅ Order change confirmed: {confirmed_change.get('confirmed_at')}")
+
+            # 5. Update database with new order information via raw SQL
             from app.db.database import engine as _engine
             from sqlalchemy import text as _text
             try:
-                new_order_id = order_change.get("order_id")
+                new_order_id = confirmed_change.get("order_id")
                 penalty = float(offer.get("penalty_total_amount", 0))
                 new_total = float(offer.get("new_total_amount", 0))
                 with _engine.connect() as _conn:
@@ -226,20 +244,21 @@ class OrderChangeService:
                     _conn.commit()
             except Exception as db_err:
                 print(f"⚠️ DB update after change failed: {db_err}")
-            
+
             return {
                 "status": "confirmed",
-                "order_change_id": order_change["id"],
-                "new_order_id": order_change.get("order_id"),
+                "order_change_id": confirmed_change["id"],
+                "new_order_id": confirmed_change.get("order_id"),
+                "confirmed_at": confirmed_change.get("confirmed_at"),
                 "change_amount": offer.get("change_total_amount"),
                 "penalty_amount": offer.get("penalty_total_amount"),
                 "new_total_amount": offer.get("new_total_amount"),
-                "confirmation": order_change
+                "confirmation": confirmed_change
             }
-            
+
         except requests.exceptions.RequestException as e:
             print(f"Error confirming change for offer {offer_id}: {e}")
-            if hasattr(e.response, 'text'):
+            if hasattr(e, 'response') and e.response is not None:
                 print(f"Response: {e.response.text}")
             raise HTTPException(
                 status_code=500,
