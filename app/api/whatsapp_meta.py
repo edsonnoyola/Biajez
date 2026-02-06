@@ -651,6 +651,223 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                         send_whatsapp_message(from_number, f"❌ No se pudo actualizar. Valores válidos: {', '.join(value_map.keys())}")
                     return {"status": "ok"}
         
+        # ===== HANDLE PENDING FLIGHT CHANGE: "cambiar a [fecha]" =====
+        if session.get("pending_change") and 'cambiar a' in msg_lower:
+            import requests as _requests
+            from app.utils.date_parser import SmartDateParser
+
+            pending = session["pending_change"]
+            order_id = pending.get("order_id")
+            change_pnr = pending.get("pnr")
+
+            if not order_id:
+                send_whatsapp_message(from_number, "❌ No se encontró el ID de la orden para cambiar.")
+                session.pop("pending_change", None)
+                session_manager.save_session(from_number, session)
+                return {"status": "ok"}
+
+            # Parse the new date from user message
+            date_text = msg_lower.replace("cambiar a", "").strip()
+            new_date = SmartDateParser.parse_single_date(date_text)
+
+            if not new_date:
+                send_whatsapp_message(from_number, "❌ No entendí la fecha. Ejemplos:\n• cambiar a 25 marzo\n• cambiar a 15/04/2026\n• cambiar a marzo 20")
+                return {"status": "ok"}
+
+            try:
+                # Fetch order from Duffel to get slice IDs and route info
+                token = os.getenv("DUFFEL_ACCESS_TOKEN")
+                duffel_headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                    "Duffel-Version": "v2"
+                }
+                order_resp = _requests.get(f"https://api.duffel.com/air/orders/{order_id}", headers=duffel_headers)
+                if order_resp.status_code != 200:
+                    send_whatsapp_message(from_number, f"❌ Error al obtener la orden: {order_resp.text}")
+                    return {"status": "ok"}
+
+                order_data = order_resp.json()["data"]
+                slices = order_data.get("slices", [])
+
+                if not slices:
+                    send_whatsapp_message(from_number, "❌ No se encontraron segmentos en la orden.")
+                    return {"status": "ok"}
+
+                # Build slices to remove (all current slices) and slices to add (same route, new date)
+                slices_to_remove = []
+                slices_to_add = []
+
+                for s in slices:
+                    slices_to_remove.append({"slice_id": s["id"]})
+                    origin = s.get("origin", {}).get("iata_code", "")
+                    destination = s.get("destination", {}).get("iata_code", "")
+                    cabin = s.get("fare_brand_name", "economy")
+                    slices_to_add.append({
+                        "origin": origin,
+                        "destination": destination,
+                        "departure_date": new_date,
+                        "cabin_class": "economy"
+                    })
+
+                # Create change request with Duffel
+                change_url = "https://api.duffel.com/air/order_change_requests"
+                change_payload = {
+                    "data": {
+                        "order_id": order_id,
+                        "slices": {
+                            "remove": slices_to_remove,
+                            "add": slices_to_add
+                        }
+                    }
+                }
+                change_resp = _requests.post(change_url, json=change_payload, headers=duffel_headers)
+
+                if change_resp.status_code != 201:
+                    error_msg = change_resp.text
+                    if "order_change_not_possible" in error_msg:
+                        send_whatsapp_message(from_number, "❌ Esta aerolínea no permite cambios en este boleto.")
+                    else:
+                        send_whatsapp_message(from_number, f"❌ Error al solicitar cambio: {error_msg[:200]}")
+                    session.pop("pending_change", None)
+                    session_manager.save_session(from_number, session)
+                    return {"status": "ok"}
+
+                change_request = change_resp.json()["data"]
+                offers = change_request.get("order_change_offers", [])
+
+                if not offers:
+                    send_whatsapp_message(from_number, f"❌ No hay opciones de cambio disponibles para {new_date}.\n\nIntenta con otra fecha: 'cambiar a [fecha]'")
+                    return {"status": "ok"}
+
+                # Show change options to user
+                response_text = f"*Opciones de cambio para {new_date}:*\n\n"
+                change_offers_list = []
+
+                for idx, offer in enumerate(offers[:5]):  # Max 5 options
+                    change_amount = offer.get("change_total_amount", "0")
+                    change_currency = offer.get("change_total_currency", "USD")
+                    penalty = offer.get("penalty_total_amount", "0")
+                    new_total = offer.get("new_total_amount", "0")
+
+                    # Get new flight details
+                    new_slices = offer.get("slices", [])
+                    route_info = ""
+                    for ns in new_slices:
+                        segs = ns.get("segments", [])
+                        if segs:
+                            first_seg = segs[0]
+                            dep_time = first_seg.get("departing_at", "")[:16].replace("T", " ")
+                            carrier = first_seg.get("marketing_carrier", {}).get("iata_code", "")
+                            flight_no = first_seg.get("marketing_carrier_flight_number", "")
+                            route_info += f"   {carrier} {flight_no} - {dep_time}\n"
+
+                    response_text += f"*{idx + 1}.* Diferencia: ${change_amount} {change_currency}\n"
+                    if float(penalty) > 0:
+                        response_text += f"   Penalidad: ${penalty}\n"
+                    response_text += f"   Nuevo total: ${new_total} {change_currency}\n"
+                    if route_info:
+                        response_text += route_info
+                    response_text += "\n"
+
+                    change_offers_list.append({
+                        "offer_id": offer["id"],
+                        "change_amount": change_amount,
+                        "new_total": new_total,
+                        "currency": change_currency
+                    })
+
+                response_text += "Envía el *número* de la opción para confirmar el cambio.\n"
+                response_text += "O escribe *cancelar* para no cambiar."
+
+                session["pending_change_offers"] = change_offers_list
+                session["pending_change"]["change_request_id"] = change_request["id"]
+                session_manager.save_session(from_number, session)
+
+                send_whatsapp_message(from_number, response_text)
+            except Exception as e:
+                print(f"❌ Flight change error: {e}")
+                send_whatsapp_message(from_number, f"❌ Error al procesar cambio: {str(e)}")
+
+            return {"status": "ok"}
+
+        # ===== HANDLE CHANGE OFFER SELECTION (number) =====
+        if incoming_msg.strip().isdigit() and session.get("pending_change_offers"):
+            import requests as _requests
+
+            offer_idx = int(incoming_msg.strip()) - 1
+            offers = session["pending_change_offers"]
+
+            if offer_idx < 0 or offer_idx >= len(offers):
+                send_whatsapp_message(from_number, f"❌ Opción inválida. Elige entre 1 y {len(offers)}.")
+                return {"status": "ok"}
+
+            selected_offer = offers[offer_idx]
+            offer_id = selected_offer["offer_id"]
+
+            try:
+                token = os.getenv("DUFFEL_ACCESS_TOKEN")
+                duffel_headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                    "Duffel-Version": "v2"
+                }
+
+                # Confirm the change
+                confirm_url = "https://api.duffel.com/air/order_changes"
+                confirm_payload = {
+                    "data": {
+                        "selected_order_change_offer": offer_id
+                    }
+                }
+                resp = _requests.post(confirm_url, json=confirm_payload, headers=duffel_headers)
+
+                if resp.status_code == 201:
+                    change_data = resp.json()["data"]
+                    new_order_id = change_data.get("order_id", "")
+
+                    # Update DB via raw SQL
+                    from sqlalchemy import text as _text
+                    pnr = session.get("pending_change", {}).get("pnr")
+                    if pnr:
+                        with engine.connect() as conn:
+                            conn.execute(
+                                _text("""UPDATE trips SET
+                                    previous_order_id = duffel_order_id,
+                                    duffel_order_id = :new_oid,
+                                    change_penalty_amount = :penalty,
+                                    total_amount = :new_total
+                                    WHERE booking_reference = :pnr"""),
+                                {
+                                    "new_oid": new_order_id,
+                                    "penalty": float(selected_offer.get("change_amount", 0)),
+                                    "new_total": float(selected_offer.get("new_total", 0)),
+                                    "pnr": pnr
+                                }
+                            )
+                            conn.commit()
+
+                    response_text = f"✅ *¡Vuelo cambiado exitosamente!*\n\n"
+                    response_text += f"PNR: {pnr}\n"
+                    response_text += f"Diferencia cobrada: ${selected_offer['change_amount']} {selected_offer['currency']}\n"
+                    response_text += f"Nuevo total: ${selected_offer['new_total']} {selected_offer['currency']}"
+
+                    # Clean up session
+                    session.pop("pending_change", None)
+                    session.pop("pending_change_offers", None)
+                    session_manager.save_session(from_number, session)
+
+                    send_whatsapp_message(from_number, response_text)
+                else:
+                    error_text = resp.text[:200]
+                    send_whatsapp_message(from_number, f"❌ Error al confirmar cambio: {error_text}")
+
+            except Exception as e:
+                print(f"❌ Change confirmation error: {e}")
+                send_whatsapp_message(from_number, f"❌ Error: {str(e)}")
+
+            return {"status": "ok"}
+
         # Check if selecting flight by number
         print(f"🔍 DEBUG Flight Selection: msg='{incoming_msg}', isdigit={incoming_msg.strip().isdigit()}, pending_flights={len(session.get('pending_flights', []))}, redis_enabled={session_manager.enabled}")
         if incoming_msg.strip().isdigit() and session.get("pending_flights"):
