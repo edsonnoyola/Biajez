@@ -25,26 +25,9 @@ class BookingOrchestrator:
         if not user_profile:
             raise HTTPException(status_code=404, detail="User profile not found")
 
-        # 2. Payment Lock (Stripe)
-        # 2. Payment Lock (Stripe)
-        stripe_key = os.getenv("STRIPE_SECRET_KEY", "")
-        if "placeholder" in stripe_key or not stripe_key:
-            print("DEBUG: Stripe Key is placeholder. Skipping payment simulation (MOCK SUCCESS).")
-        else:
-            try:
-                payment_intent = stripe.PaymentIntent.create(
-                    amount=int(amount * 100), # Cents
-                    currency="usd",
-                    payment_method="pm_card_visa", # In prod, this comes from frontend
-                    confirm=True,
-                    automatic_payment_methods={'enabled': True, 'allow_redirects': 'never'} # Simplified for backend flow
-                )
-                if payment_intent.status != "succeeded":
-                    print("DEBUG: Stripe Payment Failed (Mocking Success for Demo)")
-                    # raise HTTPException(status_code=400, detail="Payment failed")
-            except Exception as e:
-                print(f"DEBUG: Stripe Payment Error (Ignored for Demo): {str(e)}")
-                # raise HTTPException(status_code=400, detail=f"Stripe Error: {str(e)}")
+        # NOTE: No Stripe payment needed - we're an internal agency
+        # Duffel bookings use balance payment (charged to agency account)
+        # Amadeus bookings are also direct
 
         # 3. Execution & Data Injection
         # Normalize provider to uppercase for consistency
