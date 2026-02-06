@@ -1232,51 +1232,78 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
         
         # Cancelar vuelo
         if 'cancelar' in msg_lower and len(msg_lower.split()) >= 2:
-            from app.models.models import Trip, TripStatusEnum
             import requests
-            
+            from sqlalchemy import text
+
             # Extract PNR from message
             words = incoming_msg.split()
             pnr = words[-1].upper()  # Assume PNR is last word
-            
-            trip = db.query(Trip).filter(
-                Trip.booking_reference == pnr,
-                Trip.user_id == session["user_id"]
-            ).first()
-            
-            if not trip:
+
+            # Look up trip using raw SQL
+            with engine.connect() as conn:
+                trip_row = conn.execute(
+                    text("SELECT booking_reference, user_id, provider_source, status, duffel_order_id FROM trips WHERE booking_reference = :pnr AND user_id = :uid"),
+                    {"pnr": pnr, "uid": session.get("user_id", f"whatsapp_{from_number}")}
+                ).fetchone()
+
+            if not trip_row:
                 response_text = f"❌ No encontré reserva con PNR: {pnr}"
-            elif trip.status == TripStatusEnum.CANCELLED:
+            elif trip_row[3] == "CANCELLED":
                 response_text = f"ℹ️ La reserva {pnr} ya está cancelada"
             else:
-                # Cancel with Duffel if it's a Duffel booking
-                if trip.provider_source.value == "DUFFEL" and trip.duffel_order_id:
+                provider_source = trip_row[2]
+                duffel_order_id = trip_row[4]
+
+                # Cancel with Duffel if it's a Duffel booking (2-step process)
+                if provider_source == "DUFFEL" and duffel_order_id:
                     try:
                         token = os.getenv("DUFFEL_ACCESS_TOKEN")
-                        url = f"https://api.duffel.com/air/order_cancellations"
-                        headers = {
+                        duffel_headers = {
                             "Authorization": f"Bearer {token}",
                             "Content-Type": "application/json",
                             "Duffel-Version": "v2"
                         }
-                        data = {"data": {"order_id": trip.duffel_order_id}}
-                        
-                        response = requests.post(url, json=data, headers=headers)
-                        
-                        if response.status_code == 201:
-                            trip.status = TripStatusEnum.CANCELLED
-                            db.commit()
-                            response_text = f"✅ Reserva {pnr} cancelada exitosamente"
+
+                        # Step 1: Create cancellation request (gets quote)
+                        cancel_url = "https://api.duffel.com/air/order_cancellations"
+                        cancel_data = {"data": {"order_id": duffel_order_id}}
+                        resp1 = requests.post(cancel_url, json=cancel_data, headers=duffel_headers)
+
+                        if resp1.status_code == 201:
+                            cancellation = resp1.json()["data"]
+                            cancellation_id = cancellation["id"]
+                            refund_amount = cancellation.get("refund_amount", "0")
+                            refund_currency = cancellation.get("refund_currency", "USD")
+
+                            # Step 2: Confirm the cancellation
+                            confirm_url = f"https://api.duffel.com/air/order_cancellations/{cancellation_id}/actions/confirm"
+                            resp2 = requests.post(confirm_url, headers=duffel_headers)
+
+                            if resp2.status_code == 200:
+                                # Update DB via raw SQL
+                                with engine.connect() as conn:
+                                    conn.execute(
+                                        text("UPDATE trips SET status = 'CANCELLED', refund_amount = :refund WHERE booking_reference = :pnr"),
+                                        {"refund": float(refund_amount), "pnr": pnr}
+                                    )
+                                    conn.commit()
+                                response_text = f"✅ Reserva {pnr} cancelada exitosamente\n\nReembolso: ${refund_amount} {refund_currency}"
+                            else:
+                                response_text = f"❌ Error al confirmar cancelación: {resp2.text}"
                         else:
-                            response_text = f"❌ Error al cancelar: {response.text}"
+                            response_text = f"❌ Error al cancelar en Duffel: {resp1.text}"
                     except Exception as e:
                         response_text = f"❌ Error: {str(e)}"
                 else:
-                    # Mark as cancelled in DB
-                    trip.status = TripStatusEnum.CANCELLED
-                    db.commit()
+                    # Non-Duffel booking: just mark as cancelled in DB via raw SQL
+                    with engine.connect() as conn:
+                        conn.execute(
+                            text("UPDATE trips SET status = 'CANCELLED' WHERE booking_reference = :pnr"),
+                            {"pnr": pnr}
+                        )
+                        conn.commit()
                     response_text = f"✅ Reserva {pnr} cancelada"
-            
+
             send_whatsapp_message(from_number, response_text)
             return {"status": "ok"}
         

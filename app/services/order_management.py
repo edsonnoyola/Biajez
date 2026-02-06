@@ -72,63 +72,73 @@ class OrderManager:
     def cancel_order(self, order_id: str, user_id: str):
         """
         Cancel order and process refund
-        
+
         Args:
             order_id: Duffel order ID
             user_id: User ID to verify ownership
-            
+
         Returns:
             dict: Cancellation confirmation with refund details
         """
-        # 1. Verify order belongs to user
-        trip = self.db.query(Trip).filter(
-            Trip.duffel_order_id == order_id,
-            Trip.user_id == user_id
-        ).first()
-        
-        if not trip:
+        from app.db.database import engine
+        from sqlalchemy import text
+
+        # 1. Verify order belongs to user (raw SQL)
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT booking_reference, status FROM trips WHERE duffel_order_id = :oid AND user_id = :uid"),
+                {"oid": order_id, "uid": user_id}
+            ).fetchone()
+
+        if not row:
             raise HTTPException(status_code=404, detail="Order not found or unauthorized")
-        
-        if trip.status == TripStatusEnum.CANCELLED:
+
+        if row[1] == "CANCELLED":
             raise HTTPException(status_code=400, detail="Order already cancelled")
-        
+
+        pnr = row[0]
+
         # 2. Get cancellation quote first
         quote = self.get_cancellation_quote(order_id)
-        
+
         # 3. Confirm cancellation
         url = f"{self.base_url}/air/order_cancellations/{quote['cancellation_id']}/actions/confirm"
-        
+
         try:
             response = requests.post(url, headers=self.headers)
             response.raise_for_status()
             confirmed = response.json()["data"]
-            
-            # 4. Update database
-            trip.status = TripStatusEnum.CANCELLED
-            trip.refund_amount = float(confirmed.get("refund_amount", 0))
-            self.db.commit()
-            
+
+            # 4. Update database via raw SQL
+            refund_amount = float(confirmed.get("refund_amount", 0))
+            with engine.connect() as conn:
+                conn.execute(
+                    text("UPDATE trips SET status = 'CANCELLED', refund_amount = :refund WHERE booking_reference = :pnr"),
+                    {"refund": refund_amount, "pnr": pnr}
+                )
+                conn.commit()
+            print(f"✅ Order {order_id} cancelled, refund: ${refund_amount}")
+
             # 5. Create airline credit if there's a refund amount
             credit_id = None
-            refund_amount = float(confirmed.get("refund_amount", 0))
             if refund_amount > 0:
-                from app.services.airline_credits_service import AirlineCreditsService
-                credits_service = AirlineCreditsService(self.db)
-                
-                # Extract airline code from trip or order
-                airline_code = trip.departure_city[:2] if trip.departure_city else "XX"
-                
-                credit = credits_service.create_credit(
-                    user_id=user_id,
-                    airline_iata_code=airline_code,
-                    amount=refund_amount,
-                    currency=confirmed.get("refund_currency", "USD"),
-                    order_id=order_id,
-                    expires_days=365
-                )
-                credit_id = credit["id"]
-                print(f"✅ Created airline credit: {credit_id} for ${refund_amount}")
-            
+                try:
+                    from app.services.airline_credits_service import AirlineCreditsService
+                    credits_service = AirlineCreditsService(self.db)
+
+                    credit = credits_service.create_credit(
+                        user_id=user_id,
+                        airline_iata_code="XX",
+                        amount=refund_amount,
+                        currency=confirmed.get("refund_currency", "USD"),
+                        order_id=order_id,
+                        expires_days=365
+                    )
+                    credit_id = credit["id"]
+                    print(f"✅ Created airline credit: {credit_id} for ${refund_amount}")
+                except Exception as credit_err:
+                    print(f"⚠️ Could not create airline credit: {credit_err}")
+
             return {
                 "status": "cancelled",
                 "order_id": order_id,
@@ -138,7 +148,7 @@ class OrderManager:
                 "credit_created": credit_id is not None,
                 "confirmation_number": confirmed.get("confirmation_number")
             }
-            
+
         except requests.exceptions.RequestException as e:
             print(f"Error confirming cancellation for {order_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to cancel order: {str(e)}")

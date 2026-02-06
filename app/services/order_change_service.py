@@ -71,9 +71,15 @@ class OrderChangeService:
             response.raise_for_status()
             change_request = response.json()["data"]
             
-            # 3. Store change request ID in database
-            trip.change_request_id = change_request["id"]
-            self.db.commit()
+            # 3. Store change request ID in database via raw SQL
+            from app.db.database import engine as _engine
+            from sqlalchemy import text as _text
+            with _engine.connect() as _conn:
+                _conn.execute(
+                    _text("UPDATE trips SET change_request_id = :crid WHERE duffel_order_id = :oid AND user_id = :uid"),
+                    {"crid": change_request["id"], "oid": order_id, "uid": user_id}
+                )
+                _conn.commit()
             
             return {
                 "change_request_id": change_request["id"],
@@ -201,19 +207,25 @@ class OrderChangeService:
             response.raise_for_status()
             order_change = response.json()["data"]
             
-            # 4. Update database with new order information
-            # Find the trip by the original order ID (stored in change_request)
-            trip = self.db.query(Trip).filter(
-                Trip.user_id == user_id,
-                Trip.change_request_id.isnot(None)
-            ).first()
-            
-            if trip:
-                trip.previous_order_id = trip.duffel_order_id
-                trip.duffel_order_id = order_change.get("order_id")
-                trip.change_penalty_amount = float(offer.get("penalty_total_amount", 0))
-                trip.total_amount = float(offer.get("new_total_amount", trip.total_amount))
-                self.db.commit()
+            # 4. Update database with new order information via raw SQL
+            from app.db.database import engine as _engine
+            from sqlalchemy import text as _text
+            try:
+                new_order_id = order_change.get("order_id")
+                penalty = float(offer.get("penalty_total_amount", 0))
+                new_total = float(offer.get("new_total_amount", 0))
+                with _engine.connect() as _conn:
+                    _conn.execute(
+                        _text("""UPDATE trips SET previous_order_id = duffel_order_id,
+                                 duffel_order_id = :new_oid,
+                                 change_penalty_amount = :penalty,
+                                 total_amount = :new_total
+                                 WHERE user_id = :uid AND change_request_id IS NOT NULL"""),
+                        {"new_oid": new_order_id, "penalty": penalty, "new_total": new_total, "uid": user_id}
+                    )
+                    _conn.commit()
+            except Exception as db_err:
+                print(f"⚠️ DB update after change failed: {db_err}")
             
             return {
                 "status": "confirmed",
