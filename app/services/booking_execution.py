@@ -20,10 +20,36 @@ class BookingOrchestrator:
         stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
     def execute_booking(self, user_id: str, offer_id: str, provider: str, amount: float, seat_service_id: str = None, num_passengers: int = 1):
-        # 1. Context Loading
-        user_profile = self.db.query(Profile).filter(Profile.user_id == user_id).first()
-        if not user_profile:
+        # 1. Context Loading - Use RAW SQL to ensure we get latest data
+        from app.db.database import engine
+        from sqlalchemy import text
+
+        with engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT * FROM profiles WHERE user_id = :uid"),
+                {"uid": user_id}
+            )
+            row = result.fetchone()
+
+        if not row:
             raise HTTPException(status_code=404, detail="User profile not found")
+
+        # Convert row to Profile-like object for compatibility
+        row_dict = dict(row._mapping)
+        user_profile = Profile(
+            user_id=row_dict.get('user_id'),
+            phone_number=row_dict.get('phone_number'),
+            legal_first_name=row_dict.get('legal_first_name'),
+            legal_last_name=row_dict.get('legal_last_name'),
+            email=row_dict.get('email'),
+            gender=row_dict.get('gender', 'M'),
+            dob=row_dict.get('dob'),
+            passport_number=row_dict.get('passport_number'),
+            passport_expiry=row_dict.get('passport_expiry'),
+            passport_country=row_dict.get('passport_country'),
+            known_traveler_number=row_dict.get('known_traveler_number'),
+        )
+        print(f"📋 BOOKING PROFILE: {user_profile.legal_first_name} {user_profile.legal_last_name}, dob={user_profile.dob}, email={user_profile.email}")
 
         # NOTE: No Stripe payment needed - we're an internal agency
         # Duffel bookings use balance payment (charged to agency account)

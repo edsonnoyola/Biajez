@@ -1222,9 +1222,10 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     response_text += "No hay fondos suficientes para completar esta reserva.\n"
                     response_text += "El administrador debe agregar fondos en Duffel."
                 elif "passenger" in error_msg.lower() or "invalid" in error_msg.lower():
-                    response_text = "⚠️ *Datos incompletos*\n\n"
-                    response_text += "Necesito más información para reservar.\n"
-                    response_text += "Por favor actualiza tu perfil con: nombre, fecha de nacimiento y pasaporte."
+                    response_text = "⚠️ *Error de datos*\n\n"
+                    response_text += f"La aerolínea rechazó la reserva.\n"
+                    response_text += f"Detalle: {error_msg[:200]}\n\n"
+                    response_text += "Si el problema persiste, escribe *registrar* para actualizar tus datos."
                 else:
                     response_text = "❌ *Error en la reserva*\n\n"
                     response_text += "Hubo un problema procesando tu solicitud.\n"

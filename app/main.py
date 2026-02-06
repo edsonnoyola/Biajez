@@ -426,6 +426,33 @@ def admin_get_session(phone: str, secret: str):
     }
 
 
+@app.post("/admin/update-profile/{phone}")
+def admin_update_profile(phone: str, secret: str, first_name: str = None, last_name: str = None, email: str = None, dob: str = None, passport: str = None, passport_country: str = None, passport_expiry: str = None):
+    """Force update a profile with correct data"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+
+    from sqlalchemy import text
+    updates = []
+    params = {"phone": phone}
+    if first_name: updates.append("legal_first_name = :fn"); params["fn"] = first_name
+    if last_name: updates.append("legal_last_name = :ln"); params["ln"] = last_name
+    if email: updates.append("email = :em"); params["em"] = email
+    if dob: updates.append("dob = :dob"); params["dob"] = dob
+    if passport: updates.append("passport_number = :pp"); params["pp"] = passport
+    if passport_country: updates.append("passport_country = :pc"); params["pc"] = passport_country
+    if passport_expiry: updates.append("passport_expiry = :pe"); params["pe"] = passport_expiry
+
+    if not updates:
+        return {"status": "error", "message": "No fields to update"}
+
+    sql = f"UPDATE profiles SET {', '.join(updates)} WHERE phone_number = :phone"
+    with engine.connect() as conn:
+        result = conn.execute(text(sql), params)
+        conn.commit()
+        return {"status": "ok", "rows_updated": result.rowcount, "fields": list(params.keys())}
+
+
 @app.get("/admin/debug-profile/{phone}")
 def admin_debug_profile(phone: str, secret: str):
     """Debug profile with raw SQL to see exact registration_step value"""
