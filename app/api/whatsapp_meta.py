@@ -309,32 +309,49 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
         # ============================================
         # REGISTRO DE PERFIL - HANDLER PRIORITARIO
-        # (Debe ejecutarse ANTES de cualquier otro handler)
-        # Usa su propia sesión de DB para evitar issues con async
+        # Usa SQL directo porque SQLAlchemy ORM no commitea en PostgreSQL
         # ============================================
         from app.models.models import Profile
-        from app.db.database import SessionLocal
+        from app.db.database import engine
+        from sqlalchemy import text
         from datetime import datetime as dt
 
         msg_lower = incoming_msg.lower().strip()
-
-        # Usar sesión de DB dedicada para registro
-        reg_db = SessionLocal()
-
-        # Obtener perfil para verificar si está en registro
         session_user_id = session.get("user_id")
-        print(f"🔍 DEBUG Registration: session_user_id={session_user_id}")
 
-        reg_profile = reg_db.query(Profile).filter(Profile.user_id == session_user_id).first()
-        print(f"🔍 DEBUG Registration: reg_profile found={reg_profile is not None}")
-        if reg_profile:
-            print(f"🔍 DEBUG Registration: registration_step={reg_profile.registration_step}")
+        # Helper function to update profile with raw SQL
+        def update_profile_sql(user_id, **fields):
+            updates = []
+            params = {"user_id": user_id}
+            for key, value in fields.items():
+                if value is not None:
+                    updates.append(f"{key} = :{key}")
+                    params[key] = value
+            if updates:
+                sql = f"UPDATE profiles SET {', '.join(updates)} WHERE user_id = :user_id"
+                with engine.connect() as conn:
+                    conn.execute(text(sql), params)
+                    conn.commit()
+
+        # Get current profile state with raw SQL
+        def get_profile_sql(user_id):
+            sql = "SELECT * FROM profiles WHERE user_id = :user_id"
+            with engine.connect() as conn:
+                result = conn.execute(text(sql), {"user_id": user_id})
+                row = result.fetchone()
+                if row:
+                    return dict(row._mapping)
+            return None
+
+        reg_profile_data = get_profile_sql(session_user_id)
+        print(f"🔍 DEBUG Registration: session_user_id={session_user_id}")
+        print(f"🔍 DEBUG Registration: profile found={reg_profile_data is not None}")
+        if reg_profile_data:
+            print(f"🔍 DEBUG Registration: registration_step={reg_profile_data.get('registration_step')}")
 
         # CANCELAR REGISTRO - permite salir del flujo de registro
-        if msg_lower in ['cancelar', 'salir', 'exit', 'reset', 'reiniciar', 'borrar', 'limpiar'] and reg_profile and reg_profile.registration_step:
-            reg_profile.registration_step = None
-            reg_db.commit()
-            reg_db.close()
+        if msg_lower in ['cancelar', 'salir', 'exit', 'reset', 'reiniciar', 'borrar', 'limpiar'] and reg_profile_data and reg_profile_data.get('registration_step'):
+            update_profile_sql(session_user_id, registration_step=None)
 
             # Si es reset, también limpiar sesión
             if msg_lower in ['reset', 'reiniciar', 'borrar', 'limpiar']:
@@ -346,23 +363,16 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
         # Iniciar registro
         if msg_lower in ['registrar', 'registro', 'actualizar perfil', 'editar perfil']:
-            if not reg_profile:
-                reg_profile = Profile(
-                    user_id=session["user_id"],
-                    phone_number=from_number,
-                    legal_first_name="",
-                    legal_last_name="",
-                    gender="M",
-                    dob=dt.strptime("1990-01-01", "%Y-%m-%d").date(),
-                    passport_number="",
-                    passport_expiry=dt.strptime("2030-01-01", "%Y-%m-%d").date(),
-                    passport_country="XX"
-                )
-                reg_db.add(reg_profile)
-
-            reg_profile.registration_step = "nombre"
-            reg_db.commit()
-            reg_db.close()
+            if not reg_profile_data:
+                # Create new profile with raw SQL
+                sql = """INSERT INTO profiles (user_id, phone_number, legal_first_name, legal_last_name,
+                         gender, dob, passport_number, passport_expiry, passport_country, registration_step)
+                         VALUES (:user_id, :phone, '', '', 'M', '1990-01-01', '', '2030-01-01', 'XX', 'nombre')"""
+                with engine.connect() as conn:
+                    conn.execute(text(sql), {"user_id": session_user_id, "phone": from_number})
+                    conn.commit()
+            else:
+                update_profile_sql(session_user_id, registration_step="nombre")
 
             response_text = "👤 *Registro de Perfil*\n\n"
             response_text += "Vamos a registrar tus datos para poder reservar vuelos.\n\n"
@@ -373,31 +383,29 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             return {"status": "ok"}
 
         # Procesar pasos del registro si está en uno
-        if reg_profile and reg_profile.registration_step:
-            step = reg_profile.registration_step
+        if reg_profile_data and reg_profile_data.get('registration_step'):
+            step = reg_profile_data['registration_step']
             response_text = ""
 
             if step == "nombre":
                 parts = incoming_msg.strip().split()
                 if len(parts) >= 2:
-                    reg_profile.legal_first_name = " ".join(parts[:-1])
-                    reg_profile.legal_last_name = parts[-1]
+                    first_name = " ".join(parts[:-1])
+                    last_name = parts[-1]
                 else:
-                    reg_profile.legal_first_name = incoming_msg.strip()
-                    reg_profile.legal_last_name = "."
+                    first_name = incoming_msg.strip()
+                    last_name = "."
 
-                reg_profile.registration_step = "email"
-                reg_db.commit()
-                response_text = f"✅ Nombre: *{reg_profile.legal_first_name} {reg_profile.legal_last_name}*\n\n"
+                update_profile_sql(session_user_id, legal_first_name=first_name, legal_last_name=last_name, registration_step="email")
+                response_text = f"✅ Nombre: *{first_name} {last_name}*\n\n"
                 response_text += "📧 *Paso 2/6:* ¿Cuál es tu *email*?\n\n"
                 response_text += "_Aquí recibirás confirmaciones de reserva_"
 
             elif step == "email":
                 if "@" in incoming_msg and "." in incoming_msg:
-                    reg_profile.email = incoming_msg.strip().lower()
-                    reg_profile.registration_step = "nacimiento"
-                    reg_db.commit()
-                    response_text = f"✅ Email: *{reg_profile.email}*\n\n"
+                    email = incoming_msg.strip().lower()
+                    update_profile_sql(session_user_id, email=email, registration_step="nacimiento")
+                    response_text = f"✅ Email: *{email}*\n\n"
                     response_text += "📅 *Paso 3/6:* ¿Cuál es tu *fecha de nacimiento*?\n\n"
                     response_text += "_Formato: DD/MM/AAAA (ejemplo: 15/03/1990)_"
                 else:
@@ -418,10 +426,8 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     if not parsed_date:
                         raise ValueError("Fecha inválida")
 
-                    reg_profile.dob = parsed_date
-                    reg_profile.registration_step = "genero"
-                    reg_db.commit()
-                    response_text = f"✅ Nacimiento: *{reg_profile.dob}*\n\n"
+                    update_profile_sql(session_user_id, dob=str(parsed_date), registration_step="genero")
+                    response_text = f"✅ Nacimiento: *{parsed_date}*\n\n"
                     response_text += "🚻 *Paso 4/6:* ¿Cuál es tu *género*?\n\n"
                     response_text += "Responde: *M* (Masculino) o *F* (Femenino)"
                 except:
@@ -430,10 +436,9 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             elif step == "genero":
                 genero = incoming_msg.strip().upper()
                 if genero in ["M", "F", "MASCULINO", "FEMENINO", "HOMBRE", "MUJER"]:
-                    reg_profile.gender = "M" if genero in ["M", "MASCULINO", "HOMBRE"] else "F"
-                    reg_profile.registration_step = "pasaporte"
-                    reg_db.commit()
-                    response_text = f"✅ Género: *{'Masculino' if reg_profile.gender == 'M' else 'Femenino'}*\n\n"
+                    gender_val = "M" if genero in ["M", "MASCULINO", "HOMBRE"] else "F"
+                    update_profile_sql(session_user_id, gender=gender_val, registration_step="pasaporte")
+                    response_text = f"✅ Género: *{'Masculino' if gender_val == 'M' else 'Femenino'}*\n\n"
                     response_text += "🛂 *Paso 5/6:* ¿Tienes *pasaporte*?\n\n"
                     response_text += "Responde *SI* para registrarlo o *NO* para omitir\n"
                     response_text += "_El pasaporte es necesario para vuelos internacionales_"
@@ -442,38 +447,30 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
             elif step == "pasaporte":
                 if incoming_msg.strip().lower() in ["si", "sí", "yes", "s"]:
-                    reg_profile.registration_step = "pasaporte_numero"
-                    reg_db.commit()
+                    update_profile_sql(session_user_id, registration_step="pasaporte_numero")
                     response_text = "🛂 *Número de pasaporte:*\n\n_Ingresa el número de tu pasaporte_"
                 elif incoming_msg.strip().lower() in ["no", "n", "omitir"]:
-                    reg_profile.registration_step = None
-                    reg_profile.passport_number = "N/A"
-                    reg_profile.passport_country = "XX"
-                    reg_profile.passport_expiry = dt.strptime("2099-01-01", "%Y-%m-%d").date()
-                    reg_db.commit()
+                    update_profile_sql(session_user_id, registration_step=None, passport_number="N/A", passport_country="XX", passport_expiry="2099-01-01")
+                    profile = get_profile_sql(session_user_id)
                     response_text = "✅ *¡Perfil registrado!*\n\n"
-                    response_text += f"👤 {reg_profile.legal_first_name} {reg_profile.legal_last_name}\n"
-                    response_text += f"📧 {reg_profile.email}\n"
-                    response_text += f"📅 {reg_profile.dob}\n\n"
+                    response_text += f"👤 {profile['legal_first_name']} {profile['legal_last_name']}\n"
+                    response_text += f"📧 {profile['email']}\n"
+                    response_text += f"📅 {profile['dob']}\n\n"
                     response_text += "Ya puedes reservar vuelos nacionales.\n"
                     response_text += "_Para vuelos internacionales necesitarás pasaporte._"
                 else:
                     response_text = "Por favor responde *SI* o *NO*"
 
             elif step == "pasaporte_numero":
-                reg_profile.passport_number = incoming_msg.strip().upper()
-                reg_profile.registration_step = "pasaporte_pais"
-                reg_db.commit()
-                print(f"✅ DEBUG pasaporte_numero: Committed passport={reg_profile.passport_number}, next_step={reg_profile.registration_step}")
-                response_text = f"✅ Pasaporte: *{reg_profile.passport_number}*\n\n"
+                passport = incoming_msg.strip().upper()
+                update_profile_sql(session_user_id, passport_number=passport, registration_step="pasaporte_pais")
+                response_text = f"✅ Pasaporte: *{passport}*\n\n"
                 response_text += "🌍 *País emisor del pasaporte:*\n\n_Código de 2 letras (MX, US, ES, etc.)_"
 
             elif step == "pasaporte_pais":
-                reg_profile.passport_country = incoming_msg.strip().upper()[:2]
-                reg_profile.registration_step = "pasaporte_vencimiento"
-                reg_db.commit()
-                print(f"✅ DEBUG pasaporte_pais: Committed country={reg_profile.passport_country}, next_step={reg_profile.registration_step}")
-                response_text = f"✅ País: *{reg_profile.passport_country}*\n\n"
+                country = incoming_msg.strip().upper()[:2]
+                update_profile_sql(session_user_id, passport_country=country, registration_step="pasaporte_vencimiento")
+                response_text = f"✅ País: *{country}*\n\n"
                 response_text += "📅 *Fecha de vencimiento del pasaporte:*\n\n_Formato: DD/MM/AAAA_"
 
             elif step == "pasaporte_vencimiento":
@@ -488,28 +485,26 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                             continue
 
                     if parsed_date:
-                        reg_profile.passport_expiry = parsed_date
+                        update_profile_sql(session_user_id, passport_expiry=str(parsed_date), registration_step=None)
+                    else:
+                        update_profile_sql(session_user_id, registration_step=None)
 
-                    reg_profile.registration_step = None
-                    reg_db.commit()
+                    profile = get_profile_sql(session_user_id)
                     response_text = "✅ *¡Perfil completo!*\n\n"
-                    response_text += f"👤 {reg_profile.legal_first_name} {reg_profile.legal_last_name}\n"
-                    response_text += f"📧 {reg_profile.email}\n"
-                    response_text += f"📅 Nacimiento: {reg_profile.dob}\n"
-                    passport_display = reg_profile.passport_number[-4:] if len(reg_profile.passport_number) > 4 else reg_profile.passport_number
-                    response_text += f"🛂 Pasaporte: {reg_profile.passport_country} - ***{passport_display}\n"
-                    response_text += f"   Vence: {reg_profile.passport_expiry}\n\n"
+                    response_text += f"👤 {profile['legal_first_name']} {profile['legal_last_name']}\n"
+                    response_text += f"📧 {profile['email']}\n"
+                    response_text += f"📅 Nacimiento: {profile['dob']}\n"
+                    passport_display = profile['passport_number'][-4:] if len(str(profile['passport_number'])) > 4 else profile['passport_number']
+                    response_text += f"🛂 Pasaporte: {profile['passport_country']} - ***{passport_display}\n"
+                    response_text += f"   Vence: {profile['passport_expiry']}\n\n"
                     response_text += "🎉 *Ya puedes reservar vuelos nacionales e internacionales!*"
-                except:
+                except Exception as e:
+                    print(f"ERROR in pasaporte_vencimiento: {e}")
                     response_text = "❌ Fecha inválida. Usa formato: *DD/MM/AAAA*"
 
             if response_text:
-                reg_db.close()
                 send_whatsapp_message(from_number, response_text)
                 return {"status": "ok"}
-
-        # Cerrar reg_db si no se usó
-        reg_db.close()
 
         # ============================================
         # FIN HANDLER DE REGISTRO PRIORITARIO
