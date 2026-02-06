@@ -1,6 +1,60 @@
 # Production Deployment Guide
 
-## 🚀 Deploying to Production
+## 🚀 Current Production Setup (Render)
+
+**Live URL:** https://biajez-ah0g.onrender.com
+
+### Services
+- **Backend:** Render Web Service (Python/FastAPI)
+- **Database:** Render PostgreSQL (biajez_db)
+- **Cache:** Render Redis
+- **Keep-alive:** GitHub Actions (pings every 5 minutes)
+
+### Environment Variables (Render)
+```
+DATABASE_URL=postgresql://...
+REDIS_URL=redis://...
+DUFFEL_ACCESS_TOKEN=duffel_live_...
+OPENAI_API_KEY=sk-...
+WHATSAPP_ACCESS_TOKEN=...
+WHATSAPP_PHONE_NUMBER_ID=...
+WHATSAPP_VERIFY_TOKEN=...
+RESEND_API_KEY=...
+ADMIN_SECRET=biajez_admin_2026
+```
+
+### Admin Endpoints
+```bash
+# Health check
+GET /health
+GET /admin/health
+
+# Profile management
+GET /admin/profiles?secret=ADMIN_SECRET
+GET /admin/profile/{phone}?secret=ADMIN_SECRET
+GET /admin/profile-by-userid/{user_id}?secret=ADMIN_SECRET
+POST /admin/fix-profile-phone?secret=ADMIN_SECRET&user_id=X&new_phone=Y
+
+# Database fixes
+POST /admin/fix-db?secret=ADMIN_SECRET
+
+# Server management
+POST /admin/restart?secret=ADMIN_SECRET
+GET /admin/logs?secret=ADMIN_SECRET
+GET /scheduler/status
+```
+
+### WhatsApp Bot Commands
+- **registrar** - Register/update profile
+- **mi perfil** - View profile and preferences
+- **preferencias** - View preferences only
+- **mis vuelos** / **mis reservas** - View bookings
+- **ayuda** - Show all commands
+- **reset** - Clear session
+
+---
+
+## 🚀 Alternative: Manual Server Deployment
 
 ### Prerequisites
 
