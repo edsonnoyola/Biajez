@@ -947,112 +947,18 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 send_whatsapp_message(from_number, response_text)
                 return {"status": "ok"}
 
-            # Load profile for booking - use raw SQL, load ALL fields
-            from app.db.database import engine
-            from sqlalchemy import text
+            # NO profile lookup here - the BookingOrchestrator loads it directly
+            # This eliminates the mysterious webhook profile lookup failure
             from datetime import datetime as dt
 
-            user_id = session.get("user_id")
-            profile = None
-            profile_row = None
-
-            print(f"🔍 CONFIRM: Loading profile for user_id={user_id}, from_number={from_number}")
-
-            try:
-                with engine.connect() as conn:
-                    # Try user_id first
-                    if user_id:
-                        result = conn.execute(text("SELECT * FROM profiles WHERE user_id = :uid"), {"uid": user_id})
-                        profile_row = result.fetchone()
-                        if profile_row:
-                            profile_row = dict(profile_row._mapping)
-                            print(f"   ✅ Found by user_id: {profile_row.get('legal_first_name')} {profile_row.get('legal_last_name')}")
-
-                    # Fallback by phone
-                    if not profile_row:
-                        normalized = normalize_mx_number(from_number)
-                        for pv in [from_number, normalized, f"whatsapp_{from_number}", f"whatsapp_{normalized}"]:
-                            result = conn.execute(text("SELECT * FROM profiles WHERE phone_number = :p OR user_id = :u LIMIT 1"), {"p": pv, "u": pv})
-                            profile_row = result.fetchone()
-                            if profile_row:
-                                profile_row = dict(profile_row._mapping)
-                                user_id = profile_row["user_id"]
-                                session["user_id"] = user_id
-                                session_manager.save_session(from_number, session)
-                                print(f"   ✅ Found by phone ({pv}): {profile_row.get('legal_first_name')}")
-                                break
-
-                    # Last resort: LIKE
-                    if not profile_row:
-                        result = conn.execute(text("SELECT * FROM profiles WHERE phone_number LIKE :p OR user_id LIKE :u LIMIT 1"), {"p": f"%{from_number[-10:]}%", "u": f"%{from_number[-10:]}%"})
-                        profile_row = result.fetchone()
-                        if profile_row:
-                            profile_row = dict(profile_row._mapping)
-                            user_id = profile_row["user_id"]
-                            session["user_id"] = user_id
-                            session_manager.save_session(from_number, session)
-                            print(f"   ✅ Found by LIKE: {profile_row.get('legal_first_name')}")
-
-            except Exception as e:
-                print(f"   💥 EXCEPTION loading profile: {e}")
-                import traceback
-                traceback.print_exc()
-
-            # Store debug info for admin endpoint
-            if not hasattr(whatsapp_webhook, '_last_confirm_debug'):
-                whatsapp_webhook._last_confirm_debug = {}
-            whatsapp_webhook._last_confirm_debug[from_number] = {
-                "user_id": user_id,
-                "from_number": from_number,
-                "profile_found": profile_row is not None,
-                "profile_name": f"{profile_row.get('legal_first_name', '?')} {profile_row.get('legal_last_name', '?')}" if profile_row else None,
-            }
+            user_id = session.get("user_id") or f"whatsapp_{from_number}"
+            session["user_id"] = user_id  # Ensure it's always set
 
             flight = session["selected_flight"]
-            offer_id = flight.get("offer_id")
-            is_real_booking = offer_id and (offer_id.startswith("DUFFEL::") or offer_id.startswith("AMADEUS::"))
-
-            # ONLY block if NO profile exists at all - if profile exists, ALWAYS proceed
-            if is_real_booking and not profile_row:
-                response_text = "⚠️ *No se encontró tu perfil*\n\n"
-                response_text += "Escribe *registrar* para crear tu perfil."
-                send_whatsapp_message(from_number, response_text)
-                return {"status": "ok"}
-
-            # Build profile object from database row (or defaults for mock)
-            if profile_row:
-                profile = type('Profile', (), {
-                    'user_id': profile_row.get('user_id'),
-                    'legal_first_name': profile_row.get('legal_first_name', 'User'),
-                    'legal_last_name': profile_row.get('legal_last_name', 'User'),
-                    'email': profile_row.get('email', f"{user_id}@temp.com"),
-                    'dob': profile_row.get('dob', dt.strptime("1990-01-01", "%Y-%m-%d").date()),
-                    'phone_number': profile_row.get('phone_number', from_number),
-                    'gender': profile_row.get('gender', 'M'),
-                    'passport_number': profile_row.get('passport_number', ''),
-                    'passport_expiry': profile_row.get('passport_expiry'),
-                    'passport_country': profile_row.get('passport_country', 'MX'),
-                })()
-                print(f"✅ Profile loaded: {profile.legal_first_name} {profile.legal_last_name}, {profile.email}")
-            else:
-                # Mock profile for test bookings only
-                profile = Profile(
-                    user_id=session.get("user_id", f"whatsapp_{from_number}"),
-                    legal_first_name="WhatsApp",
-                    legal_last_name="User",
-                    email=f"{session.get('user_id', from_number)}@whatsapp.temp",
-                    phone_number=from_number,
-                    gender="M",
-                    dob=dt.strptime("1990-01-01", "%Y-%m-%d").date(),
-                    passport_number="000000000",
-                    passport_expiry=dt.strptime("2030-01-01", "%Y-%m-%d").date(),
-                    passport_country="US"
-                )
-                db.add(profile)
-                db.commit()
-
             provider = flight.get("provider")
             amount = float(flight.get("price", 0))
+
+            print(f"🔍 CONFIRM: user_id={user_id}, from_number={from_number}, provider={provider}")
             
             # Get flight details - convert to dict if it's an object
             # Use 'flight' variable that was defined from session["selected_flight"] above
