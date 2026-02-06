@@ -1,7 +1,14 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Body
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.services.order_management import OrderManager
+from pydantic import BaseModel
+from typing import List, Dict, Any
+
+
+class ChangeRequestBody(BaseModel):
+    slices_to_remove: List[Dict[str, Any]]
+    slices_to_add: List[Dict[str, Any]]
 
 router = APIRouter()
 
@@ -38,15 +45,14 @@ def cancel_order(order_id: str, user_id: str, db: Session = Depends(get_db)):
 def create_change_request(
     order_id: str,
     user_id: str,
-    slices_to_remove: list,
-    slices_to_add: list,
+    body: ChangeRequestBody = Body(...),
     db: Session = Depends(get_db)
 ):
     """Create an order change request"""
     from app.services.order_change_service import OrderChangeService
     change_service = OrderChangeService(db)
     return change_service.create_change_request(
-        order_id, user_id, slices_to_remove, slices_to_add
+        order_id, user_id, body.slices_to_remove, body.slices_to_add
     )
 
 @router.get("/v1/orders/change-request/{request_id}")
