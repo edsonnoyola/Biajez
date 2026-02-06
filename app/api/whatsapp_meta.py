@@ -947,18 +947,38 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 send_whatsapp_message(from_number, response_text)
                 return {"status": "ok"}
 
-            # NO profile lookup here - the BookingOrchestrator loads it directly
-            # This eliminates the mysterious webhook profile lookup failure
+            # ORIGINAL WORKING LOGIC: Simple profile lookup, no profile_complete check
+            # Restored from commit 4a1781c which worked correctly
             from datetime import datetime as dt
 
-            user_id = session.get("user_id") or f"whatsapp_{from_number}"
-            session["user_id"] = user_id  # Ensure it's always set
-
             flight = session["selected_flight"]
+            offer_id = flight.get("offer_id")
             provider = flight.get("provider")
             amount = float(flight.get("price", 0))
 
-            print(f"🔍 CONFIRM: user_id={user_id}, from_number={from_number}, provider={provider}")
+            # Simple profile lookup using ORM (this is how it worked originally)
+            profile = db.query(Profile).filter(Profile.user_id == session["user_id"]).first()
+            if not profile:
+                # Create default profile - same as original working code
+                profile = Profile(
+                    user_id=session["user_id"],
+                    legal_first_name="WhatsApp",
+                    legal_last_name="User",
+                    email=f"{session['user_id']}@whatsapp.temp",
+                    phone_number=from_number,
+                    gender="M",
+                    dob=dt.strptime("1990-01-01", "%Y-%m-%d").date(),
+                    passport_number="000000000",
+                    passport_expiry=dt.strptime("2030-01-01", "%Y-%m-%d").date(),
+                    passport_country="US"
+                )
+                db.add(profile)
+                try:
+                    db.commit()
+                except:
+                    db.rollback()
+
+            print(f"🔍 CONFIRM: user_id={session.get('user_id')}, profile={profile.legal_first_name if profile else 'None'}, provider={provider}")
             
             # Get flight details - convert to dict if it's an object
             # Use 'flight' variable that was defined from session["selected_flight"] above
