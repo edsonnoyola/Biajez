@@ -340,8 +340,29 @@ class FlightAggregator:
             response_data = response.json()["data"]
             print(f"DEBUG: Duffel Raw Search Found {len(response_data['offers'])} offers")
             flights = []
-            
-            for offer in response_data['offers']:
+
+            # In test mode, filter out offers that expire too quickly (Travelport sandbox issue)
+            is_test_mode = token and "duffel_test_" in token
+            valid_offers = response_data['offers']
+            if is_test_mode:
+                from datetime import timezone
+                now = datetime.now(timezone.utc)
+                filtered = []
+                for o in valid_offers:
+                    expires = o.get("expires_at")
+                    if expires:
+                        try:
+                            exp_dt = datetime.fromisoformat(expires.replace("Z", "+00:00"))
+                            if (exp_dt - now).total_seconds() > 300:  # More than 5 min
+                                filtered.append(o)
+                        except:
+                            filtered.append(o)
+                    else:
+                        filtered.append(o)
+                print(f"DEBUG: Test mode - filtered {len(valid_offers)} → {len(filtered)} offers (removed quick-expiry)")
+                valid_offers = filtered if filtered else valid_offers[:5]
+
+            for offer in valid_offers:
                 # NOTE: Don't filter by airline here - we'll boost preferred airline in scoring
                 # This ensures we always return results even if preferred airline isn't available
                     
