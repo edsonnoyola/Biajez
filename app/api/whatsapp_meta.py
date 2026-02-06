@@ -409,9 +409,12 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             return {"status": "ok"}
 
         # Procesar pasos del registro si está en uno
-        # IMPORTANTE: Solo procesar si registration_step está activo
-        if reg_profile_data and reg_profile_data.get('registration_step'):
-            step = reg_profile_data['registration_step']
+        # IMPORTANTE: Solo procesar si registration_step está activo Y no es None/null/empty
+        current_step = reg_profile_data.get('registration_step') if reg_profile_data else None
+
+        # SAFEGUARD: Double check that step is actually set
+        if current_step and str(current_step).lower() not in ['none', 'null', '']:
+            step = current_step
             print(f"📝 REGISTRATION FLOW ACTIVE: step={step}, processing message: {incoming_msg[:30]}...")
             response_text = ""
 

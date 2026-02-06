@@ -426,6 +426,48 @@ def admin_get_session(phone: str, secret: str):
     }
 
 
+@app.get("/admin/debug-profile/{phone}")
+def admin_debug_profile(phone: str, secret: str):
+    """Debug profile with raw SQL to see exact registration_step value"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+
+    from sqlalchemy import text
+
+    results = {}
+
+    with engine.connect() as conn:
+        # Direct query for registration_step
+        result = conn.execute(
+            text("SELECT user_id, registration_step, legal_first_name, dob FROM profiles WHERE phone_number = :phone"),
+            {"phone": phone}
+        )
+        row = result.fetchone()
+        if row:
+            results["by_phone"] = {
+                "user_id": row[0],
+                "registration_step": row[1],
+                "registration_step_type": str(type(row[1])),
+                "registration_step_repr": repr(row[1]),
+                "legal_first_name": row[2],
+                "dob": str(row[3])
+            }
+
+        # Also try by user_id
+        result = conn.execute(
+            text("SELECT user_id, registration_step, legal_first_name FROM profiles WHERE user_id LIKE :pattern"),
+            {"pattern": f"%{phone}%"}
+        )
+        rows = result.fetchall()
+        results["by_user_id_pattern"] = [{"user_id": r[0], "registration_step": r[1], "name": r[2]} for r in rows]
+
+        # Count all profiles
+        result = conn.execute(text("SELECT COUNT(*) FROM profiles"))
+        results["total_profiles"] = result.fetchone()[0]
+
+    return results
+
+
 @app.post("/admin/fix-db")
 def admin_fix_db(secret: str):
     """Manually add missing columns to PostgreSQL database"""
