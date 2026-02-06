@@ -368,11 +368,12 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     return dict(row._mapping)
             return None
 
-        reg_profile_data = get_profile_sql(session_user_id)
-        print(f"🔍 DEBUG Registration: session_user_id={session_user_id}")
-        print(f"🔍 DEBUG Registration: profile found={reg_profile_data is not None}")
-        if reg_profile_data:
-            print(f"🔍 DEBUG Registration: registration_step={reg_profile_data.get('registration_step')}")
+        reg_profile_data = get_profile_sql(session_user_id) if session_user_id else None
+        print(f"🔍 DEBUG Registration Check:")
+        print(f"   session_user_id={session_user_id}")
+        print(f"   profile found={reg_profile_data is not None}")
+        print(f"   registration_step={reg_profile_data.get('registration_step') if reg_profile_data else 'N/A'}")
+        print(f"   msg_lower={msg_lower[:50]}...")
 
         # CANCELAR REGISTRO - permite salir del flujo de registro
         if msg_lower in ['cancelar', 'salir', 'exit', 'reset', 'reiniciar', 'borrar', 'limpiar'] and reg_profile_data and reg_profile_data.get('registration_step'):
@@ -408,8 +409,10 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             return {"status": "ok"}
 
         # Procesar pasos del registro si está en uno
+        # IMPORTANTE: Solo procesar si registration_step está activo
         if reg_profile_data and reg_profile_data.get('registration_step'):
             step = reg_profile_data['registration_step']
+            print(f"📝 REGISTRATION FLOW ACTIVE: step={step}, processing message: {incoming_msg[:30]}...")
             response_text = ""
 
             if step == "nombre":
