@@ -269,6 +269,31 @@ def health_check():
     return {"status": "ok", "service": "biajez"}
 
 
+@app.get("/ticket/{pnr}")
+def get_ticket(pnr: str):
+    """Serve ticket HTML by PNR"""
+    from fastapi.responses import HTMLResponse
+    from app.services.ticket_generator import TICKET_STORE
+
+    if pnr in TICKET_STORE:
+        return HTMLResponse(content=TICKET_STORE[pnr], status_code=200)
+
+    # If not in memory, return a simple "not found" page
+    return HTMLResponse(
+        content=f"""
+        <html>
+        <head><title>Ticket Not Found</title></head>
+        <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+            <h1>Ticket no encontrado</h1>
+            <p>El ticket con PNR <strong>{pnr}</strong> no está disponible.</p>
+            <p>Los tickets se generan al momento de la compra y están disponibles por tiempo limitado.</p>
+        </body>
+        </html>
+        """,
+        status_code=404
+    )
+
+
 @app.get("/scheduler/status")
 def get_scheduler_status():
     """Get status of all scheduled background jobs"""

@@ -1,11 +1,15 @@
 import os
 from datetime import datetime
 
+# In-memory ticket store (for serverless/stateless environments)
+TICKET_STORE = {}
+
 class TicketGenerator:
     @staticmethod
     def generate_html_ticket(pnr, passenger_name, flight_data, amount):
         """
-        Generates a Duffel-style HTML ticket.
+        Generates a Duffel-style HTML ticket and stores it in memory.
+        Returns the URL path to retrieve it.
         """
         # Extract details
         segment = flight_data.get('segments', [{}])[0]
@@ -90,13 +94,12 @@ class TicketGenerator:
         </html>
         """
         
-        # Save to file
-        filename = f"ticket_{pnr}.html"
-        path = os.path.join("frontend/public/tickets", filename)
-        with open(path, "w") as f:
-            f.write(html_content)
-            
-        return f"/tickets/{filename}"
+        # Store in memory for retrieval via API
+        TICKET_STORE[pnr] = html_content
+
+        # Return API URL (will be served by /ticket/{pnr} endpoint)
+        base_url = os.getenv("BASE_URL", "https://biajez-ah0g.onrender.com")
+        return f"{base_url}/ticket/{pnr}"
             
     @staticmethod
     def generate_hotel_ticket(pnr, guest_name, hotel_data, amount):
@@ -166,9 +169,9 @@ class TicketGenerator:
         </html>
         """
         
-        filename = f"hotel_{pnr}.html"
-        path = os.path.join("frontend/public/tickets", filename)
-        with open(path, "w") as f:
-            f.write(html_content)
-            
-        return f"/tickets/{filename}"
+        # Store in memory for retrieval via API
+        TICKET_STORE[pnr] = html_content
+
+        # Return API URL
+        base_url = os.getenv("BASE_URL", "https://biajez-ah0g.onrender.com")
+        return f"{base_url}/ticket/{pnr}"
