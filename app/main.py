@@ -39,8 +39,18 @@ from app.api import price_alerts
 # NEW: Import scheduler service
 from app.services.scheduler_service import scheduler_service
 
-# Create tables
-models.Base.metadata.create_all(bind=engine)
+# Create tables (with retry for transient DB connection issues)
+for _attempt in range(3):
+    try:
+        models.Base.metadata.create_all(bind=engine)
+        break
+    except Exception as _db_err:
+        print(f"⚠️ DB create_all attempt {_attempt+1} failed: {_db_err}")
+        if _attempt < 2:
+            import time
+            time.sleep(5)
+        else:
+            print("❌ Could not connect to database after 3 attempts - starting anyway")
 
 # Run migrations for new columns (safe to run multiple times)
 def run_migrations():
@@ -194,7 +204,10 @@ def run_migrations():
     except Exception as e:
         print(f"⚠️ Migration error: {e}")
 
-run_migrations()
+try:
+    run_migrations()
+except Exception as _mig_err:
+    print(f"⚠️ Migrations failed (non-fatal): {_mig_err}")
 
 
 @asynccontextmanager
