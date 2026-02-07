@@ -853,6 +853,19 @@ def admin_get_profile(phone: str, secret: str):
 def admin_list_profiles(secret: str):
     """List all profiles"""
 
+@app.get("/admin/webhook-log")
+def admin_webhook_log(secret: str, n: int = 10):
+    """Show last N webhook events from Redis"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+    import redis, json as _json
+    try:
+        r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+        logs = r.lrange("webhook_log", 0, n - 1)
+        return {"logs": [_json.loads(l) for l in logs]}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.get("/admin/list-trips")
 def admin_list_trips(secret: str, user_id: str = None):
     """List all trips, optionally filtered by user_id"""

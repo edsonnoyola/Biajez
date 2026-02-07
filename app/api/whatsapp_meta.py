@@ -179,7 +179,16 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
     try:
         body = await request.json()
         print(f"📱 WhatsApp webhook received: {json.dumps(body, indent=2)}")
-        
+
+        # Save to Redis for debug (last 20 webhook events)
+        try:
+            import redis as _r
+            _rc = _r.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+            _rc.lpush("webhook_log", json.dumps({"ts": str(datetime.now()), "body": body})[:2000])
+            _rc.ltrim("webhook_log", 0, 19)
+        except:
+            pass
+
         # Extraer mensaje
         if body.get("object") != "whatsapp_business_account":
             return {"status": "ok"}
