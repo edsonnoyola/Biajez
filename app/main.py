@@ -451,6 +451,8 @@ def admin_get_session(phone: str, secret: str):
             "pending_hotels": len(session.get("pending_hotels", [])),
             "selected_flight": bool(session.get("selected_flight")),
             "selected_hotel": bool(session.get("selected_hotel")),
+            "pending_change": session.get("pending_change"),
+            "pending_change_offers": bool(session.get("pending_change_offers")),
             "last_updated": session.get("last_updated"),
             "messages_count": len(session.get("messages", [])),
         }

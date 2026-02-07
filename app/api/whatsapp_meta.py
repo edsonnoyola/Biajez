@@ -667,8 +667,9 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     return {"status": "ok"}
         
         # ===== HANDLE SLICE SELECTION FOR FLIGHT CHANGE (round trips) =====
+        # IMPORTANT: Skip if pending_flights exists (user is selecting a flight, not a slice)
         _pending_change = session.get("pending_change", {})
-        if isinstance(_pending_change, dict) and _pending_change.get("awaiting_slice_selection") and incoming_msg.strip().isdigit():
+        if isinstance(_pending_change, dict) and _pending_change.get("awaiting_slice_selection") and incoming_msg.strip().isdigit() and not session.get("pending_flights"):
             slice_idx = int(incoming_msg.strip()) - 1
             slices_info = _pending_change.get("slices", [])
             if 0 <= slice_idx < len(slices_info):
@@ -688,7 +689,8 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
         # ===== HANDLE PENDING FLIGHT CHANGE: "cambiar a [fecha]" =====
         # Accept: "cambiar a 25 marzo", "cambiar al 25 marzo", "cambiar 25 marzo", "25 marzo", etc.
-        _has_pending_change = isinstance(_pending_change, dict) and _pending_change.get("order_id") and not _pending_change.get("awaiting_slice_selection") and not session.get("pending_change_offers")
+        # IMPORTANT: Skip if pending_flights exists (user is selecting a flight, not changing one)
+        _has_pending_change = isinstance(_pending_change, dict) and _pending_change.get("order_id") and not _pending_change.get("awaiting_slice_selection") and not session.get("pending_change_offers") and not session.get("pending_flights")
         _is_change_msg = False
         _change_date_text = ""
         if _has_pending_change:
@@ -2704,8 +2706,11 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
                     if tool_result:
                         session["pending_flights"] = tool_result[:5]
+                        # Clear any leftover change state from previous flow
+                        session.pop("pending_change", None)
+                        session.pop("pending_change_offers", None)
                         session_manager.save_session(from_number, session)
-                
+
                 elif function_name == "google_hotels":
                     # Handle hotel search via AI agent
                     from app.services.hotel_engine import HotelEngine
@@ -2762,6 +2767,9 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
                     if tool_result:
                         session["pending_flights"] = tool_result[:5]
+                        # Clear any leftover change state from previous flow
+                        session.pop("pending_change", None)
+                        session.pop("pending_change_offers", None)
                         session_manager.save_session(from_number, session)
                     else:
                         tool_result = []
