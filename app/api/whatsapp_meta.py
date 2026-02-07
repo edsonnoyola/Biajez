@@ -836,7 +836,9 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     new_total = offer.get("new_total_amount", "0")
 
                     # Get new flight details
-                    new_slices = offer.get("slices", [])
+                    # Duffel returns slices as {"add": [...], "remove": [...]}, not a list
+                    slices_data = offer.get("slices", {})
+                    new_slices = slices_data.get("add", []) if isinstance(slices_data, dict) else slices_data if isinstance(slices_data, list) else []
                     route_info = ""
                     for ns in new_slices:
                         segs = ns.get("segments", [])
