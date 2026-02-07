@@ -1437,17 +1437,25 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     except:
                         pass
 
-                # DEBUG: Always show full error for now (remove after debugging)
-                response_text = f"❌ *Error en reserva (DEBUG)*\n\n"
-                response_text += f"offer: {str(offer_id)[:60]}\n"
-                response_text += f"amount: {amount}\n"
-                response_text += f"provider: {provider}\n\n"
-                response_text += f"```{str(error_detail)[:400]}```\n"
-
-                if "offer_no_longer_available" in str(error_detail) or "price_changed" in str(error_detail):
-                    response_text += "\n⚠️ La oferta expiró. Busca el vuelo nuevamente."
-                elif "insufficient_balance" in str(error_detail).lower():
-                    response_text += "\n💰 Balance insuficiente en Duffel."
+                error_str = str(error_detail)
+                if "offer_no_longer_available" in error_str or "price_changed" in error_str:
+                    response_text = "⚠️ *Tarifa expirada*\n\n"
+                    response_text += "Esa oferta ya no está disponible (el precio cambió o se agotó).\n"
+                    response_text += "Por favor busca el vuelo nuevamente para obtener el precio actualizado."
+                elif "insufficient_balance" in error_str.lower():
+                    response_text = "💰 *Balance insuficiente*\n\n"
+                    response_text += "No hay fondos suficientes para completar esta reserva.\n"
+                    response_text += "El administrador debe agregar fondos en Duffel."
+                elif "passenger" in error_str.lower() or "invalid" in error_str.lower():
+                    response_text = "⚠️ *Error de datos*\n\n"
+                    response_text += "La aerolínea rechazó la reserva.\n"
+                    response_text += f"Detalle: {error_str[:200]}\n\n"
+                    response_text += "Si el problema persiste, escribe *registrar* para actualizar tus datos."
+                else:
+                    response_text = "❌ *Error en la reserva*\n\n"
+                    response_text += "Hubo un problema procesando tu solicitud.\n"
+                    response_text += f"Detalle: {error_str[:200]}\n"
+                    response_text += "Por favor intenta buscar y reservar nuevamente."
 
             
             send_whatsapp_message(from_number, response_text)
