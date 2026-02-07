@@ -700,7 +700,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             if _change_match:
                 _is_change_msg = True
                 _change_date_text = _change_match.group(1).strip()
-            elif not any(kw in msg_lower for kw in ['cancelar', 'buscar', 'vuelo', 'hotel', 'ayuda', 'hola', 'mis viajes']):
+            elif not any(kw in msg_lower for kw in ['cancelar', 'buscar', 'vuelo', 'hotel', 'ayuda', 'hola', 'mis viajes', 'reset', 'reiniciar', 'menu', 'menú', 'inicio', 'no']):
                 # If pending_change is set and message looks like a date (not a command), try parsing it
                 _is_change_msg = True
                 _change_date_text = msg_lower.strip()

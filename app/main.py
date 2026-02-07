@@ -338,6 +338,15 @@ def admin_last_confirm(phone: str, secret: str):
     return {"status": "ok", "debug": None, "message": "No confirmation attempt recorded for this phone"}
 
 
+@app.post("/admin/clear-session/{phone}")
+def admin_clear_session(phone: str, secret: str):
+    """Clear a user's Redis session"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+    from app.services.whatsapp_redis import session_manager
+    session_manager.delete_session(phone)
+    return {"status": "ok", "message": f"Session cleared for {phone}"}
+
 @app.post("/admin/restart")
 def admin_restart(secret: str):
     """
