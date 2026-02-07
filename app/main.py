@@ -866,6 +866,19 @@ def admin_webhook_log(secret: str, n: int = 10):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+@app.get("/admin/booking-errors")
+def admin_booking_errors(secret: str, n: int = 10):
+    """Show last N booking errors from Redis"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+    import redis, json as _json
+    try:
+        r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+        errors = r.lrange("booking_errors", 0, n - 1)
+        return {"errors": [_json.loads(e) for e in errors]}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.get("/admin/list-trips")
 def admin_list_trips(secret: str, user_id: str = None):
     """List all trips, optionally filtered by user_id"""

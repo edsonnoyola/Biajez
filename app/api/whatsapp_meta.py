@@ -1402,11 +1402,25 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 error_msg = str(e)
                 print(f"❌ Booking error: {error_msg}")
 
+                # Log full error to Redis for debugging
+                try:
+                    import redis as _rlog
+                    _rc_log = _rlog.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+                    _rc_log.lpush("booking_errors", json.dumps({
+                        "ts": str(datetime.now()),
+                        "user": from_number,
+                        "offer_id": offer_id[:80] if offer_id else "N/A",
+                        "error": error_msg[:500]
+                    }))
+                    _rc_log.ltrim("booking_errors", 0, 19)
+                except:
+                    pass
+
                 if "offer_no_longer_available" in error_msg or "price_changed" in error_msg:
                     response_text = "⚠️ *Tarifa expirada*\n\n"
                     response_text += "Esa oferta ya no está disponible (el precio cambió o se agotó).\n"
                     response_text += "Por favor busca el vuelo nuevamente para obtener el precio actualizado."
-                elif "insufficient_balance" in error_msg.lower() or "balance" in error_msg.lower():
+                elif "insufficient_balance" in error_msg.lower():
                     response_text = "💰 *Balance insuficiente*\n\n"
                     response_text += "No hay fondos suficientes para completar esta reserva.\n"
                     response_text += "El administrador debe agregar fondos en Duffel."
@@ -1418,7 +1432,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 else:
                     response_text = "❌ *Error en la reserva*\n\n"
                     response_text += "Hubo un problema procesando tu solicitud.\n"
-                    response_text += f"Detalle: {error_msg[:100]}\n"
+                    response_text += f"Detalle: {error_msg[:200]}\n"
                     response_text += "Por favor intenta buscar y reservar nuevamente."
 
             
