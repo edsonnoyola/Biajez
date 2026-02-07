@@ -667,7 +667,23 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     return {"status": "ok"}
         
         # ===== HANDLE PENDING FLIGHT CHANGE: "cambiar a [fecha]" =====
-        if session.get("pending_change") and 'cambiar a' in msg_lower:
+        # Accept: "cambiar a 25 marzo", "cambiar al 25 marzo", "cambiar 25 marzo", "25 marzo", etc.
+        _has_pending_change = session.get("pending_change") and not session.get("pending_change_offers")
+        _is_change_msg = False
+        _change_date_text = ""
+        if _has_pending_change:
+            import re as _re
+            # Match "cambiar a/al/para [date]" or "cambiar [date]" or just a date when pending
+            _change_match = _re.match(r'^cambiar\s+(?:a\s+|al\s+|para\s+|para\s+el\s+|el\s+)?(.+)$', msg_lower)
+            if _change_match:
+                _is_change_msg = True
+                _change_date_text = _change_match.group(1).strip()
+            elif not any(kw in msg_lower for kw in ['cancelar', 'buscar', 'vuelo', 'hotel', 'ayuda', 'hola', 'mis viajes']):
+                # If pending_change is set and message looks like a date (not a command), try parsing it
+                _is_change_msg = True
+                _change_date_text = msg_lower.strip()
+
+        if _is_change_msg and _change_date_text:
             import requests as _requests
             from app.utils.date_parser import SmartDateParser
 
@@ -682,7 +698,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 return {"status": "ok"}
 
             # Parse the new date from user message
-            date_text = msg_lower.replace("cambiar a", "").strip()
+            date_text = _change_date_text
             new_date = SmartDateParser.parse_single_date(date_text)
 
             if not new_date:
