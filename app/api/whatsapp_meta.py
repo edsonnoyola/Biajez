@@ -1400,32 +1400,53 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 
             except Exception as e:
                 error_msg = str(e)
-                print(f"❌ Booking error: {error_msg}")
+                # Also get detail from HTTPException if available
+                error_detail = getattr(e, 'detail', error_msg)
+                print(f"❌ Booking error: {error_detail}")
 
-                # Log full error to Redis for debugging (robust version)
+                # Log to DATABASE (raw SQL - always works on Render)
                 try:
-                    import redis as _rlog
-                    _rc_log = _rlog.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
-                    log_entry = json.dumps({
-                        "ts": datetime.now().isoformat(),
-                        "user": str(from_number),
-                        "offer_id": str(offer_id)[:80] if offer_id else "N/A",
-                        "provider": str(provider) if provider else "N/A",
-                        "amount": str(amount) if amount else "N/A",
-                        "error": error_msg[:1000]
-                    })
-                    _rc_log.lpush("booking_errors", log_entry)
-                    _rc_log.ltrim("booking_errors", 0, 49)
-                except Exception as log_err:
-                    print(f"⚠️ Redis log failed: {log_err}")
+                    from sqlalchemy import text as _text
+                    with engine.connect() as _err_conn:
+                        _err_conn.execute(
+                            _text("""INSERT INTO booking_errors (ts, phone, offer_id, provider, amount, error)
+                                     VALUES (:ts, :phone, :oid, :prov, :amt, :err)"""),
+                            {
+                                "ts": datetime.now().isoformat(),
+                                "phone": str(from_number),
+                                "oid": str(offer_id)[:200] if offer_id else "N/A",
+                                "prov": str(provider)[:50] if provider else "N/A",
+                                "amt": str(amount),
+                                "err": str(error_detail)[:2000]
+                            }
+                        )
+                        _err_conn.commit()
+                except Exception as db_log_err:
+                    print(f"⚠️ DB error log failed: {db_log_err}")
+                    # Fallback: log to Redis
+                    try:
+                        import redis as _rlog
+                        _rc_log = _rlog.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+                        _rc_log.lpush("booking_errors", json.dumps({
+                            "ts": datetime.now().isoformat(),
+                            "phone": str(from_number),
+                            "offer_id": str(offer_id)[:80] if offer_id else "N/A",
+                            "error": str(error_detail)[:1000]
+                        }))
+                        _rc_log.ltrim("booking_errors", 0, 49)
+                    except:
+                        pass
 
                 # DEBUG: Always show full error for now (remove after debugging)
                 response_text = f"❌ *Error en reserva (DEBUG)*\n\n"
-                response_text += f"```{error_msg[:600]}```\n"
+                response_text += f"offer: {str(offer_id)[:60]}\n"
+                response_text += f"amount: {amount}\n"
+                response_text += f"provider: {provider}\n\n"
+                response_text += f"```{str(error_detail)[:400]}```\n"
 
-                if "offer_no_longer_available" in error_msg or "price_changed" in error_msg:
+                if "offer_no_longer_available" in str(error_detail) or "price_changed" in str(error_detail):
                     response_text += "\n⚠️ La oferta expiró. Busca el vuelo nuevamente."
-                elif "insufficient_balance" in error_msg.lower():
+                elif "insufficient_balance" in str(error_detail).lower():
                     response_text += "\n💰 Balance insuficiente en Duffel."
 
             

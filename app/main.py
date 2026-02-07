@@ -868,14 +868,18 @@ def admin_webhook_log(secret: str, n: int = 10):
 
 @app.get("/admin/booking-errors")
 def admin_booking_errors(secret: str, n: int = 10):
-    """Show last N booking errors from Redis"""
+    """Show last N booking errors from DB"""
     if secret != ADMIN_SECRET:
         return {"status": "error", "message": "Invalid secret"}
-    import redis, json as _json
+    from sqlalchemy import text
     try:
-        r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
-        errors = r.lrange("booking_errors", 0, n - 1)
-        return {"errors": [_json.loads(e) for e in errors]}
+        with engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT ts, phone, offer_id, provider, amount, error FROM booking_errors ORDER BY id DESC LIMIT :n"),
+                {"n": n}
+            )
+            errors = [dict(row._mapping) for row in result]
+            return {"errors": errors}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
