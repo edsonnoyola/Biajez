@@ -810,10 +810,18 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
                 if change_resp.status_code != 201:
                     error_msg = change_resp.text
-                    if "order_change_not_possible" in error_msg:
-                        send_whatsapp_message(from_number, "❌ Esta aerolínea no permite cambios en este boleto.")
+                    if "order_change_not_possible" in error_msg or "not changeable" in error_msg or "invalid_state_error" in error_msg:
+                        send_whatsapp_message(from_number, "❌ Esta aerolínea no permite cambios en este boleto.\n\nPuedes cancelar y reservar uno nuevo.")
+                    elif "no_available" in error_msg or "sold_out" in error_msg:
+                        send_whatsapp_message(from_number, f"❌ No hay vuelos disponibles para {new_date}. Intenta otra fecha.")
                     else:
-                        send_whatsapp_message(from_number, f"❌ Error al solicitar cambio: {error_msg[:200]}")
+                        # Parse Duffel error for clean message
+                        try:
+                            err_data = change_resp.json().get("errors", [{}])[0]
+                            clean_msg = err_data.get("message", error_msg[:200])
+                            send_whatsapp_message(from_number, f"❌ Error al solicitar cambio: {clean_msg}")
+                        except Exception:
+                            send_whatsapp_message(from_number, f"❌ Error al solicitar cambio. Intenta de nuevo o contacta soporte.")
                     session.pop("pending_change", None)
                     session_manager.save_session(from_number, session)
                     return {"status": "ok"}
