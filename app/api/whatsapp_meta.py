@@ -707,9 +707,9 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     _is_change_msg = True
                     _change_date_text = _change_match.group(1).strip()
                 elif not any(kw in msg_lower for kw in _change_commands):
-                # If pending_change is set and message looks like a date (not a command), try parsing it
-                _is_change_msg = True
-                _change_date_text = msg_lower.strip()
+                    # If pending_change is set and message looks like a date (not a command), try parsing it
+                    _is_change_msg = True
+                    _change_date_text = msg_lower.strip()
 
         if _is_change_msg and _change_date_text:
             import requests as _requests
