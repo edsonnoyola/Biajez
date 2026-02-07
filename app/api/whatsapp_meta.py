@@ -666,9 +666,29 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                         send_whatsapp_message(from_number, f"❌ No se pudo actualizar. Valores válidos: {', '.join(value_map.keys())}")
                     return {"status": "ok"}
         
+        # ===== HANDLE SLICE SELECTION FOR FLIGHT CHANGE (round trips) =====
+        _pending_change = session.get("pending_change", {})
+        if isinstance(_pending_change, dict) and _pending_change.get("awaiting_slice_selection") and incoming_msg.strip().isdigit():
+            slice_idx = int(incoming_msg.strip()) - 1
+            slices_info = _pending_change.get("slices", [])
+            if 0 <= slice_idx < len(slices_info):
+                selected = slices_info[slice_idx]
+                session["pending_change"] = {
+                    "pnr": _pending_change.get("pnr"),
+                    "order_id": _pending_change.get("order_id"),
+                    "selected_slice": selected
+                }
+                session_manager.save_session(from_number, session)
+                send_whatsapp_message(from_number,
+                    f"Seleccionaste: {selected['origin']} → {selected['destination']} | {selected['date']}\n\n"
+                    f"Escribe la nueva fecha:\nEjemplo: cambiar 25 marzo")
+            else:
+                send_whatsapp_message(from_number, f"❌ Opción inválida. Elige entre 1 y {len(slices_info)}.")
+            return {"status": "ok"}
+
         # ===== HANDLE PENDING FLIGHT CHANGE: "cambiar a [fecha]" =====
         # Accept: "cambiar a 25 marzo", "cambiar al 25 marzo", "cambiar 25 marzo", "25 marzo", etc.
-        _has_pending_change = session.get("pending_change") and not session.get("pending_change_offers")
+        _has_pending_change = isinstance(_pending_change, dict) and _pending_change.get("order_id") and not _pending_change.get("awaiting_slice_selection") and not session.get("pending_change_offers")
         _is_change_msg = False
         _change_date_text = ""
         if _has_pending_change:
@@ -706,16 +726,20 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 return {"status": "ok"}
 
             try:
-                # Fetch order from Duffel to get slice IDs and route info
                 token = os.getenv("DUFFEL_ACCESS_TOKEN")
                 duffel_headers = {
                     "Authorization": f"Bearer {token}",
                     "Content-Type": "application/json",
                     "Duffel-Version": "v2"
                 }
+
+                # Check if we have a pre-selected slice (from "cambiar vuelo" step)
+                selected_slice = pending.get("selected_slice")
+
+                # Fetch order from Duffel to get current slice IDs
                 order_resp = _requests.get(f"https://api.duffel.com/air/orders/{order_id}", headers=duffel_headers)
                 if order_resp.status_code != 200:
-                    send_whatsapp_message(from_number, f"❌ Error al obtener la orden: {order_resp.text}")
+                    send_whatsapp_message(from_number, f"❌ Error al obtener la orden: {order_resp.text[:200]}")
                     return {"status": "ok"}
 
                 order_data = order_resp.json()["data"]
@@ -725,21 +749,49 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     send_whatsapp_message(from_number, "❌ No se encontraron segmentos en la orden.")
                     return {"status": "ok"}
 
-                # Build slices to remove (all current slices) and slices to add (same route, new date)
+                # Build slices to remove and add
                 slices_to_remove = []
                 slices_to_add = []
 
-                for s in slices:
-                    slices_to_remove.append({"slice_id": s["id"]})
-                    origin = s.get("origin", {}).get("iata_code", "")
-                    destination = s.get("destination", {}).get("iata_code", "")
-                    cabin = s.get("fare_brand_name", "economy")
-                    slices_to_add.append({
-                        "origin": origin,
-                        "destination": destination,
-                        "departure_date": new_date,
-                        "cabin_class": "economy"
-                    })
+                if selected_slice:
+                    # Only change the selected slice, keep others
+                    target_slice_id = selected_slice.get("id")
+                    for s in slices:
+                        if s["id"] == target_slice_id:
+                            slices_to_remove.append({"slice_id": s["id"]})
+                            slices_to_add.append({
+                                "origin": selected_slice.get("origin", ""),
+                                "destination": selected_slice.get("destination", ""),
+                                "departure_date": new_date,
+                                "cabin_class": "economy"
+                            })
+                            break
+                    if not slices_to_remove:
+                        # Fallback: slice ID not found, change first slice
+                        s = slices[0]
+                        slices_to_remove.append({"slice_id": s["id"]})
+                        origin_data = s.get("origin", {})
+                        dest_data = s.get("destination", {})
+                        slices_to_add.append({
+                            "origin": origin_data.get("iata_code", "") if isinstance(origin_data, dict) else str(origin_data),
+                            "destination": dest_data.get("iata_code", "") if isinstance(dest_data, dict) else str(dest_data),
+                            "departure_date": new_date,
+                            "cabin_class": "economy"
+                        })
+                else:
+                    # No pre-selected slice - change all (single leg or legacy flow)
+                    for s in slices:
+                        slices_to_remove.append({"slice_id": s["id"]})
+                        origin_data = s.get("origin", {})
+                        dest_data = s.get("destination", {})
+                        orig_code = origin_data.get("iata_code", "") if isinstance(origin_data, dict) else str(origin_data)
+                        dest_code = dest_data.get("iata_code", "") if isinstance(dest_data, dict) else str(dest_data)
+                        slices_to_add.append({
+                            "origin": orig_code,
+                            "destination": dest_code,
+                            "departure_date": new_date,
+                            "cabin_class": "economy"
+                        })
 
                 # Create change request with Duffel
                 change_url = "https://api.duffel.com/air/order_change_requests"
@@ -789,7 +841,8 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                         if segs:
                             first_seg = segs[0]
                             dep_time = first_seg.get("departing_at", "")[:16].replace("T", " ")
-                            carrier = first_seg.get("marketing_carrier", {}).get("iata_code", "")
+                            _carrier_data = first_seg.get("marketing_carrier", {})
+                            carrier = _carrier_data.get("iata_code", "") if isinstance(_carrier_data, dict) else str(_carrier_data)
                             flight_no = first_seg.get("marketing_carrier_flight_number", "")
                             route_info += f"   {carrier} {flight_no} - {dep_time}\n"
 
@@ -2302,28 +2355,95 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
         # CAMBIAR VUELO
         if any(kw in msg_lower for kw in ['cambiar vuelo', 'cambiar fecha', 'modificar vuelo', 'change flight']):
-            from app.services.order_change_service import OrderChangeService
-
-            change_service = OrderChangeService(db)
+            import requests as _requests
             user_id = session.get("user_id", f"whatsapp_{from_number}")
 
-            # Get user's trip
+            # Get user's trip from DB
             from app.services.itinerary_service import ItineraryService
             itinerary_service = ItineraryService(db)
             upcoming = itinerary_service.get_upcoming_trip(user_id)
 
             if upcoming and upcoming.get("success"):
-                response = f"*Cambiar vuelo*\n\n"
-                response += f"PNR: {upcoming.get('booking_reference')}\n"
-                response += f"Vuelo actual: {upcoming.get('flight', {}).get('route', 'N/A')}\n\n"
-                response += "Para cambiar, escribe la nueva fecha:\n"
-                response += "'cambiar a [fecha]'\n\n"
-                response += "Ejemplo: cambiar a 25 marzo"
+                order_id = upcoming.get("duffel_order_id")
+                pnr = upcoming.get("booking_reference")
+                flight = upcoming.get("flight", {})
+                dep_city = flight.get("departure_city", "???")
+                arr_city = flight.get("arrival_city", "???")
 
-                session["pending_change"] = {
-                    "pnr": upcoming.get("booking_reference"),
-                    "order_id": upcoming.get("duffel_order_id")
-                }
+                # Fetch slices from Duffel for accurate info
+                slices_info = []
+                if order_id:
+                    try:
+                        token = os.getenv("DUFFEL_ACCESS_TOKEN")
+                        duffel_headers = {
+                            "Authorization": f"Bearer {token}",
+                            "Content-Type": "application/json",
+                            "Duffel-Version": "v2"
+                        }
+                        order_resp = _requests.get(f"https://api.duffel.com/air/orders/{order_id}", headers=duffel_headers)
+                        if order_resp.status_code == 200:
+                            order_data = order_resp.json()["data"]
+                            for s in order_data.get("slices", []):
+                                origin_data = s.get("origin", {})
+                                dest_data = s.get("destination", {})
+                                orig_code = origin_data.get("iata_code", "") if isinstance(origin_data, dict) else str(origin_data)
+                                dest_code = dest_data.get("iata_code", "") if isinstance(dest_data, dict) else str(dest_data)
+                                # Get first segment for flight info
+                                segs = s.get("segments", [])
+                                flight_info = ""
+                                dep_date = ""
+                                if segs:
+                                    first_seg = segs[0]
+                                    carrier = first_seg.get("marketing_carrier", {})
+                                    carrier_code = carrier.get("iata_code", "") if isinstance(carrier, dict) else ""
+                                    flight_num = first_seg.get("marketing_carrier_flight_number", "")
+                                    dep_at = first_seg.get("departing_at", "")
+                                    dep_date = dep_at[:10] if dep_at else ""
+                                    dep_time = dep_at[11:16] if len(dep_at) > 16 else ""
+                                    flight_info = f"{carrier_code} {flight_num} {dep_time}"
+                                slices_info.append({
+                                    "id": s["id"],
+                                    "origin": orig_code,
+                                    "destination": dest_code,
+                                    "date": dep_date,
+                                    "flight_info": flight_info
+                                })
+                    except Exception as e:
+                        print(f"Error fetching Duffel slices: {e}")
+
+                response = f"*Cambiar vuelo*\n\nPNR: {pnr}\n"
+
+                if len(slices_info) > 1:
+                    # Round trip or multi-leg - let user choose which slice to change
+                    response += "Selecciona qué vuelo cambiar:\n\n"
+                    for idx, sl in enumerate(slices_info):
+                        response += f"*{idx + 1}.* {sl['origin']} → {sl['destination']} | {sl['date']} | {sl['flight_info']}\n"
+                    response += "\nEnvía el número del vuelo que quieres cambiar."
+                    session["pending_change"] = {
+                        "pnr": pnr,
+                        "order_id": order_id,
+                        "slices": slices_info,
+                        "awaiting_slice_selection": True
+                    }
+                elif len(slices_info) == 1:
+                    # Single slice - show it and ask for date
+                    sl = slices_info[0]
+                    response += f"Vuelo: {sl['origin']} → {sl['destination']} | {sl['date']} | {sl['flight_info']}\n\n"
+                    response += "Escribe la nueva fecha:\n"
+                    response += "Ejemplo: cambiar 25 marzo"
+                    session["pending_change"] = {
+                        "pnr": pnr,
+                        "order_id": order_id,
+                        "selected_slice": slices_info[0]
+                    }
+                else:
+                    response += f"Vuelo: {dep_city} → {arr_city}\n\n"
+                    response += "Escribe la nueva fecha:\n"
+                    response += "Ejemplo: cambiar 25 marzo"
+                    session["pending_change"] = {
+                        "pnr": pnr,
+                        "order_id": order_id
+                    }
                 session_manager.save_session(from_number, session)
             else:
                 response = "No tienes vuelos próximos para cambiar."
