@@ -1613,6 +1613,26 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             words = incoming_msg.split()
             pnr = words[-1].upper()  # Assume PNR is last word
 
+            # If user wrote "cancelar vuelo/viaje/reserva/mi" etc., show their trips instead
+            _non_pnr_words = ['VUELO', 'VIAJE', 'RESERVA', 'MI', 'MIS', 'RESERVACION', 'BOLETO', 'TICKET', 'VUELOS', 'VIAJES']
+            if pnr in _non_pnr_words:
+                _uid = session.get("user_id", f"whatsapp_{from_number}")
+                with engine.connect() as conn:
+                    _user_trips = conn.execute(
+                        text("SELECT booking_reference, departure_city, arrival_city, status FROM trips WHERE user_id = :uid AND status != 'CANCELLED' ORDER BY created_at DESC LIMIT 5"),
+                        {"uid": _uid}
+                    ).fetchall()
+                if _user_trips:
+                    response_text = "*¿Cuál reserva quieres cancelar?*\n\n"
+                    for _t in _user_trips:
+                        _route = f"{_t[1] or '?'} → {_t[2] or '?'}"
+                        response_text += f"• *{_t[0]}* — {_route}\n"
+                    response_text += "\nEscribe: *cancelar [PNR]*"
+                else:
+                    response_text = "No tienes reservas activas para cancelar."
+                send_whatsapp_message(from_number, response_text)
+                return {"status": "ok"}
+
             # Look up trip using raw SQL
             with engine.connect() as conn:
                 trip_row = conn.execute(
