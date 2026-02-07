@@ -828,18 +828,37 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     "Duffel-Version": "v2"
                 }
 
-                # Confirm the change
-                confirm_url = "https://api.duffel.com/air/order_changes"
-                confirm_payload = {
+                # Step 2: Create pending order change
+                create_url = "https://api.duffel.com/air/order_changes"
+                create_payload = {
                     "data": {
                         "selected_order_change_offer": offer_id
                     }
                 }
-                resp = _requests.post(confirm_url, json=confirm_payload, headers=duffel_headers)
+                resp = _requests.post(create_url, json=create_payload, headers=duffel_headers)
 
                 if resp.status_code == 201:
                     change_data = resp.json()["data"]
+                    change_id = change_data["id"]
                     new_order_id = change_data.get("order_id", "")
+
+                    # Step 3: Confirm the change with payment (REQUIRED)
+                    confirm_url = f"https://api.duffel.com/air/order_changes/{change_id}/actions/confirm"
+                    payment_amount = selected_offer.get("change_amount", "0")
+                    confirm_payload = {
+                        "data": {
+                            "payment": {
+                                "amount": str(payment_amount),
+                                "currency": selected_offer.get("currency", "USD"),
+                                "type": "balance"
+                            }
+                        }
+                    }
+                    confirm_resp = _requests.post(confirm_url, json=confirm_payload, headers=duffel_headers)
+                    if confirm_resp.status_code != 200:
+                        error_text = confirm_resp.text[:200]
+                        send_whatsapp_message(from_number, f"❌ Error al confirmar cambio con pago: {error_text}")
+                        return {"status": "ok"}
 
                     # Update DB via raw SQL
                     from sqlalchemy import text as _text
