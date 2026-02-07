@@ -1402,38 +1402,31 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 error_msg = str(e)
                 print(f"❌ Booking error: {error_msg}")
 
-                # Log full error to Redis for debugging
+                # Log full error to Redis for debugging (robust version)
                 try:
                     import redis as _rlog
                     _rc_log = _rlog.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
-                    _rc_log.lpush("booking_errors", json.dumps({
-                        "ts": str(datetime.now()),
-                        "user": from_number,
-                        "offer_id": offer_id[:80] if offer_id else "N/A",
-                        "error": error_msg[:500]
-                    }))
-                    _rc_log.ltrim("booking_errors", 0, 19)
-                except:
-                    pass
+                    log_entry = json.dumps({
+                        "ts": datetime.now().isoformat(),
+                        "user": str(from_number),
+                        "offer_id": str(offer_id)[:80] if offer_id else "N/A",
+                        "provider": str(provider) if provider else "N/A",
+                        "amount": str(amount) if amount else "N/A",
+                        "error": error_msg[:1000]
+                    })
+                    _rc_log.lpush("booking_errors", log_entry)
+                    _rc_log.ltrim("booking_errors", 0, 49)
+                except Exception as log_err:
+                    print(f"⚠️ Redis log failed: {log_err}")
+
+                # DEBUG: Always show full error for now (remove after debugging)
+                response_text = f"❌ *Error en reserva (DEBUG)*\n\n"
+                response_text += f"```{error_msg[:600]}```\n"
 
                 if "offer_no_longer_available" in error_msg or "price_changed" in error_msg:
-                    response_text = "⚠️ *Tarifa expirada*\n\n"
-                    response_text += "Esa oferta ya no está disponible (el precio cambió o se agotó).\n"
-                    response_text += "Por favor busca el vuelo nuevamente para obtener el precio actualizado."
+                    response_text += "\n⚠️ La oferta expiró. Busca el vuelo nuevamente."
                 elif "insufficient_balance" in error_msg.lower():
-                    response_text = "💰 *Balance insuficiente*\n\n"
-                    response_text += "No hay fondos suficientes para completar esta reserva.\n"
-                    response_text += "El administrador debe agregar fondos en Duffel."
-                elif "passenger" in error_msg.lower() or "invalid" in error_msg.lower():
-                    response_text = "⚠️ *Error de datos*\n\n"
-                    response_text += f"La aerolínea rechazó la reserva.\n"
-                    response_text += f"Detalle: {error_msg[:200]}\n\n"
-                    response_text += "Si el problema persiste, escribe *registrar* para actualizar tus datos."
-                else:
-                    response_text = "❌ *Error en la reserva*\n\n"
-                    response_text += "Hubo un problema procesando tu solicitud.\n"
-                    response_text += f"Detalle: {error_msg[:200]}\n"
-                    response_text += "Por favor intenta buscar y reservar nuevamente."
+                    response_text += "\n💰 Balance insuficiente en Duffel."
 
             
             send_whatsapp_message(from_number, response_text)
