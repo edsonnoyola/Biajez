@@ -912,6 +912,30 @@ def admin_delete_trip(booking_ref: str, secret: str):
         return {"status": "ok", "deleted": result.rowcount}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+@app.get("/admin/send-test")
+def admin_send_test(secret: str, phone: str, msg: str = "Hola, este es un mensaje de prueba del bot Biajez."):
+    """Send a test WhatsApp message to verify API connection"""
+    if secret != ADMIN_SECRET:
+        return {"status": "error", "message": "Invalid secret"}
+    import requests as _req
+    phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+    access_token = os.getenv("WHATSAPP_ACCESS_TOKEN")
+    if not phone_number_id or not access_token:
+        return {"status": "error", "message": "WhatsApp credentials not configured"}
+    # Normalize Mexican numbers
+    to_number = phone
+    if to_number.startswith("521") and len(to_number) == 13:
+        to_number = "52" + to_number[3:]
+    url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
+    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+    data = {"messaging_product": "whatsapp", "to": to_number, "type": "text", "text": {"body": msg}}
+    try:
+        resp = _req.post(url, json=data, headers=headers)
+        return {"status": "ok", "to": to_number, "http_status": resp.status_code, "response": resp.json()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
     if secret != ADMIN_SECRET:
         return {"status": "error", "message": "Invalid secret"}
 
