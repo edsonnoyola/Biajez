@@ -695,12 +695,18 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
         _change_date_text = ""
         if _has_pending_change:
             import re as _re
-            # Match "cambiar a/al/para [date]" or "cambiar [date]" or just a date when pending
-            _change_match = _re.match(r'^cambiar\s+(?:a\s+|al\s+|para\s+|para\s+el\s+|el\s+)?(.+)$', msg_lower)
-            if _change_match:
-                _is_change_msg = True
-                _change_date_text = _change_match.group(1).strip()
-            elif not any(kw in msg_lower for kw in ['cancelar', 'buscar', 'vuelo', 'hotel', 'ayuda', 'hola', 'mis viajes', 'reset', 'reiniciar', 'menu', 'menú', 'inicio', 'no']):
+            # Skip if user is sending a command (not a date)
+            _change_commands = ['cambiar vuelo', 'cambiar fecha', 'modificar vuelo', 'cancelar vuelo',
+                               'cancelar', 'buscar', 'vuelo', 'hotel', 'ayuda', 'hola', 'mis viajes',
+                               'reset', 'reiniciar', 'menu', 'menú', 'inicio', 'no']
+            _is_command = any(msg_lower.strip() == cmd or msg_lower.strip().startswith(cmd + ' ') for cmd in _change_commands if ' ' in cmd) or msg_lower.strip() in _change_commands
+            if not _is_command:
+                # Match "cambiar a/al/para [date]" or "cambiar [date]" or just a date when pending
+                _change_match = _re.match(r'^cambiar\s+(?:a\s+|al\s+|para\s+|para\s+el\s+|el\s+)?(.+)$', msg_lower)
+                if _change_match:
+                    _is_change_msg = True
+                    _change_date_text = _change_match.group(1).strip()
+                elif not any(kw in msg_lower for kw in _change_commands):
                 # If pending_change is set and message looks like a date (not a command), try parsing it
                 _is_change_msg = True
                 _change_date_text = msg_lower.strip()
@@ -2369,6 +2375,9 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
         if any(kw in msg_lower for kw in ['cambiar vuelo', 'cambiar fecha', 'modificar vuelo', 'change flight']):
             import requests as _requests
             user_id = session.get("user_id", f"whatsapp_{from_number}")
+            # Clear any previous change state
+            session.pop("pending_change", None)
+            session.pop("pending_change_offers", None)
 
             # Get user's trip from DB
             from app.services.itinerary_service import ItineraryService
