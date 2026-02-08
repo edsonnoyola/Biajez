@@ -134,6 +134,7 @@ class Trip(Base):
     baggage_services = Column(Text, nullable=True)  # JSON of purchased baggage services
     checkin_status = Column(String, default='NOT_CHECKED_IN')  # NOT_CHECKED_IN, SCHEDULED, CHECKED_IN, FAILED
     boarding_pass_url = Column(String, nullable=True)  # URL to boarding pass PDF
+    eticket_number = Column(String, nullable=True)  # Airline e-ticket number(s) from Duffel documents
 
 class Payment(Base):
     __tablename__ = "payments"

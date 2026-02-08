@@ -248,6 +248,8 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 incoming_msg = "checkin"
             elif "equipaje" in button_title.lower() or "maleta" in button_title.lower():
                 incoming_msg = "equipaje"
+            elif "asiento" in button_title.lower():
+                incoming_msg = "asientos"
             elif "itinerario" in button_title.lower():
                 incoming_msg = "itinerario"
             elif "ayuda" in button_title.lower():
@@ -989,6 +991,69 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
             return {"status": "ok"}
 
+        # ===== SEAT CODE HANDLER (e.g. "12A") =====
+        _seat_match = re.match(r'^(\d{1,2}[A-Ka-k])$', incoming_msg.strip())
+        if _seat_match and session.get("pending_seat_selection"):
+            seat_code = _seat_match.group(1).upper()
+            seat_data = session["pending_seat_selection"]
+            order_id = seat_data.get("order_id")
+            seat_map = seat_data.get("seat_map")
+            seat_pnr = seat_data.get("pnr", "")
+
+            from app.services.seat_selection_service import SeatSelectionService
+            seat_service = SeatSelectionService()
+            service_id = seat_service.find_seat_service_id(seat_map, seat_code)
+
+            if not service_id:
+                send_whatsapp_message(from_number, f"❌ Asiento *{seat_code}* no disponible. Elige otro del mapa.")
+                return {"status": "ok"}
+
+            result = await seat_service.select_seat(order_id, service_id)
+            if result.get("success"):
+                response_text = f"✅ *Asiento {seat_code} confirmado*\n\n"
+                response_text += f"PNR: {seat_pnr}\n"
+                response_text += "Tu asiento ha sido asignado."
+            else:
+                response_text = f"❌ No se pudo asignar el asiento: {result.get('error', 'Error desconocido')}"
+
+            session.pop("pending_seat_selection", None)
+            session_manager.save_session(from_number, session)
+            send_whatsapp_message(from_number, response_text)
+            return {"status": "ok"}
+
+        # ===== BAGGAGE SELECTION HANDLER (digit when pending_baggage) =====
+        if incoming_msg.strip().isdigit() and session.get("pending_baggage") and not session.get("pending_flights") and not session.get("pending_change_offers"):
+            bag_idx = int(incoming_msg.strip()) - 1
+            bag_data = session["pending_baggage"]
+            options = bag_data.get("options", [])
+            bag_order_id = bag_data.get("order_id")
+            bag_pnr = bag_data.get("pnr", "")
+
+            if 0 <= bag_idx < len(options):
+                selected_option = options[bag_idx]
+                service_id = selected_option.get("id")
+
+                from app.services.baggage_service import BaggageService
+                baggage_service = BaggageService(db)
+                result = baggage_service.add_baggage(bag_order_id, [service_id])
+
+                if result.get("success"):
+                    price = selected_option.get("price", "0")
+                    currency = selected_option.get("currency", "USD")
+                    response_text = f"✅ *Maleta agregada*\n\n"
+                    response_text += f"PNR: {bag_pnr}\n"
+                    response_text += f"Costo: ${price} {currency}\n"
+                    response_text += f"Nuevo total: ${result.get('new_total', 'N/A')} {result.get('currency', 'USD')}"
+                else:
+                    response_text = f"❌ No se pudo agregar la maleta: {result.get('error', 'Error desconocido')}"
+
+                session.pop("pending_baggage", None)
+                session_manager.save_session(from_number, session)
+                send_whatsapp_message(from_number, response_text)
+            else:
+                send_whatsapp_message(from_number, f"❌ Opción inválida. Elige entre 1 y {len(options)}.")
+            return {"status": "ok"}
+
         # Check if selecting flight by number
         print(f"🔍 DEBUG Flight Selection: msg='{incoming_msg}', isdigit={incoming_msg.strip().isdigit()}, pending_flights={len(session.get('pending_flights', []))}, redis_enabled={session_manager.enabled}")
         if incoming_msg.strip().isdigit() and session.get("pending_flights"):
@@ -1484,12 +1549,18 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 response_text += f"✈️ *Aerolínea:* {airline}\n"
                 response_text += f"🛫 *Ruta:* {dep_city} → {arr_city}\n"
                 response_text += f"📅 *Fecha:* {dep_date}\n"
-                response_text += f"💰 *Total:* ${amount} USD\n\n"
-                response_text += "✨ _Reserva REAL confirmada en la aerolínea_\n"
+                response_text += f"💰 *Total:* ${amount} USD\n"
+                # Show e-ticket if available
+                eticket = booking_result.get("eticket_number")
+                if eticket:
+                    response_text += f"🎫 *E-ticket:* {eticket}\n"
+                response_text += "\n✨ _Reserva REAL confirmada en la aerolínea_\n"
                 if ticket_url:
                     response_text += f"🎫 Ticket: {ticket_url}"
 
-                # Store last booking for context
+                # Store last booking for context (include offer_id and order_id for post-booking services)
+                duffel_order_id = booking_result.get("duffel_order_id")
+                booking_offer_id = booking_result.get("offer_id")
                 session["last_booking"] = {
                     "type": "vuelo",
                     "origin": dep_city,
@@ -1497,11 +1568,16 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     "checkin": dep_date,
                     "checkout": None,
                     "dates": dep_date,
-                    "pnr": pnr
+                    "pnr": pnr,
+                    "duffel_order_id": duffel_order_id,
+                    "offer_id": booking_offer_id
                 }
 
                 session["selected_flight"] = None
                 session["pending_flights"] = []
+                # Clear any stale post-booking states
+                session.pop("pending_seat_selection", None)
+                session.pop("pending_baggage", None)
                 session_manager.save_session(from_number, session)
                 
             except Exception as e:
@@ -1563,10 +1639,15 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     response_text += f"Detalle: {error_str[:200]}\n"
                     response_text += "Por favor intenta buscar y reservar nuevamente."
 
-            
-            send_whatsapp_message(from_number, response_text)
+
+            # For Duffel bookings, show post-booking action buttons
+            if provider and provider.upper() == "DUFFEL" and session.get("last_booking", {}).get("duffel_order_id"):
+                send_interactive_message(from_number, response_text,
+                    ["Elegir asiento", "Agregar maleta", "Ver itinerario"])
+            else:
+                send_whatsapp_message(from_number, response_text)
             return {"status": "ok"}
-        
+
         # Command handlers
         msg_lower = incoming_msg.lower().strip()
 
@@ -1968,7 +2049,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
         # EQUIPAJE / BAGGAGE - Only if explicit standalone command
         print(f"🧳 DEBUG checking equipaje: msg_lower='{msg_lower}', contains equipaje: {'equipaje' in msg_lower}")
-        is_equipaje_command = msg_lower.strip() in ['equipaje', 'maletas', 'baggage', 'maleta', 'mi equipaje']
+        is_equipaje_command = msg_lower.strip() in ['equipaje', 'maletas', 'baggage', 'maleta', 'mi equipaje', 'agregar maleta']
         if is_equipaje_command and not has_pending_search:
             from app.services.baggage_service import BaggageService
             from app.services.itinerary_service import ItineraryService
@@ -1977,16 +2058,37 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             itinerary_service = ItineraryService(db)
 
             user_id = session.get("user_id", f"whatsapp_{from_number}")
-            upcoming = itinerary_service.get_upcoming_trip(user_id)
 
-            if upcoming and upcoming.get("success"):
-                pnr = upcoming.get("booking_reference")
-                baggage_data = baggage_service.get_trip_baggage(pnr)
+            # Check last_booking first (just booked a flight)
+            last_booking = session.get("last_booking", {})
+            bag_order_id = last_booking.get("duffel_order_id")
+            bag_pnr = last_booking.get("pnr", "")
+
+            if not bag_order_id:
+                # Fall back to upcoming trip
+                upcoming = itinerary_service.get_upcoming_trip(user_id)
+                if upcoming and upcoming.get("success"):
+                    bag_order_id = upcoming.get("duffel_order_id")
+                    bag_pnr = upcoming.get("booking_reference", "")
+
+            if bag_order_id:
+                baggage_data = baggage_service.get_baggage_options(bag_order_id)
                 response = baggage_service.format_baggage_for_whatsapp(baggage_data)
-                buttons = baggage_service.format_baggage_buttons(baggage_data)
-                send_interactive_message(from_number, response, [b["title"] for b in buttons])
+
+                # If there are purchasable options, store in session for selection
+                available = baggage_data.get("available_options", [])
+                if available:
+                    session["pending_baggage"] = {
+                        "order_id": bag_order_id,
+                        "pnr": bag_pnr,
+                        "options": available[:5]
+                    }
+                    session_manager.save_session(from_number, session)
+                    response += "\n\n_Responde con el número para agregar_"
+
+                send_whatsapp_message(from_number, response)
             else:
-                send_whatsapp_message(from_number, "No tienes viajes proximos.\n\nBusca un vuelo para ver opciones de equipaje.")
+                send_whatsapp_message(from_number, "No tienes viajes próximos.\n\nBusca un vuelo para ver opciones de equipaje.")
 
             return {"status": "ok"}
 
@@ -2261,22 +2363,49 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             send_whatsapp_message(from_number, response)
             return {"status": "ok"}
 
-        # ASIENTOS / SEAT SELECTION
-        if msg_lower.strip() in ['asientos', 'seleccionar asiento', 'mapa de asientos', 'seats']:
+        # ASIENTOS / SEAT SELECTION (post-booking flow)
+        if msg_lower.strip() in ['asientos', 'seleccionar asiento', 'mapa de asientos', 'seats', 'elegir asiento']:
             from app.services.seat_selection_service import SeatSelectionService
 
             seat_service = SeatSelectionService()
 
-            # Check if user has selected a flight
-            if session.get("selected_flight"):
-                offer_id = session["selected_flight"].get("offer_id")
-                if offer_id:
-                    seat_map = await seat_service.get_seat_map(offer_id)
-                    response = seat_service.format_seat_map_for_whatsapp(seat_map)
-                else:
-                    response = "No pude obtener el mapa de asientos para este vuelo."
+            # Check for post-booking seat selection (last_booking has order_id)
+            last_booking = session.get("last_booking", {})
+            offer_id = last_booking.get("offer_id")
+            order_id = last_booking.get("duffel_order_id")
+            booking_pnr = last_booking.get("pnr", "")
+
+            if not offer_id:
+                # Fall back to selected flight (pre-booking)
+                if session.get("selected_flight"):
+                    offer_id = session["selected_flight"].get("offer_id")
+
+            if not offer_id:
+                # Try to find from upcoming trip
+                from app.services.itinerary_service import ItineraryService
+                itinerary_service = ItineraryService(db)
+                user_id = session.get("user_id", f"whatsapp_{from_number}")
+                upcoming = itinerary_service.get_upcoming_trip(user_id)
+                if upcoming and upcoming.get("success"):
+                    order_id = upcoming.get("duffel_order_id")
+                    booking_pnr = upcoming.get("booking_reference", "")
+
+            if offer_id:
+                # Strip DUFFEL:: prefix if present
+                clean_offer = offer_id.split("::")[1] if "::" in offer_id else offer_id
+                seat_map = await seat_service.get_seat_map(clean_offer)
+                response = seat_service.format_seat_map_for_whatsapp(seat_map)
+
+                # Store state for seat code handler
+                if order_id and not seat_map.get("error"):
+                    session["pending_seat_selection"] = {
+                        "order_id": order_id,
+                        "seat_map": seat_map,
+                        "pnr": booking_pnr
+                    }
+                    session_manager.save_session(from_number, session)
             else:
-                response = "*Selección de asiento*\n\nPrimero selecciona un vuelo para ver los asientos disponibles."
+                response = "*Selección de asiento*\n\nNo encontré un vuelo reciente. Reserva un vuelo primero."
 
             send_whatsapp_message(from_number, response)
             return {"status": "ok"}

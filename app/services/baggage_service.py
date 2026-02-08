@@ -125,16 +125,25 @@ class BaggageService:
             if response.status_code in [200, 201]:
                 result = response.json()["data"]
 
-                # Update trip in database
-                trip = self.db.query(Trip).filter(
-                    Trip.duffel_order_id == order_id
-                ).first()
-
-                if trip:
-                    existing_services = json.loads(trip.baggage_services or "[]")
-                    existing_services.extend(service_ids)
-                    trip.baggage_services = json.dumps(existing_services)
-                    self.db.commit()
+                # Update trip in database using raw SQL (ORM doesn't persist on Render)
+                try:
+                    from app.db.database import engine
+                    from sqlalchemy import text
+                    with engine.connect() as conn:
+                        row = conn.execute(
+                            text("SELECT baggage_services FROM trips WHERE duffel_order_id = :oid"),
+                            {"oid": order_id}
+                        ).fetchone()
+                        if row:
+                            existing_services = json.loads(row[0] or "[]")
+                            existing_services.extend(service_ids)
+                            conn.execute(
+                                text("UPDATE trips SET baggage_services = :bs WHERE duffel_order_id = :oid"),
+                                {"bs": json.dumps(existing_services), "oid": order_id}
+                            )
+                            conn.commit()
+                except Exception as db_err:
+                    print(f"⚠️ Baggage DB update failed (non-critical): {db_err}")
 
                 return {
                     "success": True,

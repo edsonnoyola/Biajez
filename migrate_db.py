@@ -26,6 +26,9 @@ migrations = [
 
     # Notification table - metadata column
     "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS extra_data TEXT;",
+
+    # E-ticket number from Duffel documents
+    "ALTER TABLE trips ADD COLUMN IF NOT EXISTS eticket_number VARCHAR;",
 ]
 
 print("🔄 Running database migrations...")

@@ -10,7 +10,8 @@ import json
 
 def save_trip_sql(booking_reference, user_id, provider_source, total_amount, status,
                    invoice_url=None, confirmed_at=None, departure_city=None,
-                   arrival_city=None, departure_date=None, duffel_order_id=None):
+                   arrival_city=None, departure_date=None, duffel_order_id=None,
+                   eticket_number=None):
     """Save Trip record using raw SQL - ORM writes don't persist on Render PostgreSQL."""
     from app.db.database import engine
     from sqlalchemy import text
@@ -20,10 +21,10 @@ def save_trip_sql(booking_reference, user_id, provider_source, total_amount, sta
                 text("""
                     INSERT INTO trips (booking_reference, user_id, provider_source, total_amount, status,
                                        invoice_url, confirmed_at, departure_city, arrival_city,
-                                       departure_date, duffel_order_id)
+                                       departure_date, duffel_order_id, eticket_number)
                     VALUES (:booking_reference, :user_id, :provider_source, :total_amount, :status,
                             :invoice_url, :confirmed_at, :departure_city, :arrival_city,
-                            :departure_date, :duffel_order_id)
+                            :departure_date, :duffel_order_id, :eticket_number)
                 """),
                 {
                     "booking_reference": booking_reference,
@@ -37,6 +38,7 @@ def save_trip_sql(booking_reference, user_id, provider_source, total_amount, sta
                     "arrival_city": arrival_city,
                     "departure_date": str(departure_date) if departure_date else None,
                     "duffel_order_id": duffel_order_id,
+                    "eticket_number": eticket_number,
                 }
             )
             conn.commit()
@@ -410,6 +412,13 @@ class BookingOrchestrator:
             pnr = order_data['booking_reference']
             ticket_number = order_data['id']
 
+            # Extract e-ticket numbers from Duffel documents
+            eticket_numbers = [doc['unique_identifier'] for doc in order_data.get('documents', [])
+                               if doc.get('type') == 'electronic_ticket' and doc.get('unique_identifier')]
+            eticket_str = ', '.join(eticket_numbers) if eticket_numbers else None
+            if eticket_str:
+                print(f"🎫 E-ticket numbers: {eticket_str}")
+
             # SAFETY NET: Save PNR to Redis immediately after Duffel confirms
             # This way even if DB save fails, we have a record of the booking
             try:
@@ -465,7 +474,8 @@ class BookingOrchestrator:
                 departure_city=departure_city,
                 arrival_city=arrival_city,
                 departure_date=departure_date,
-                duffel_order_id=ticket_number
+                duffel_order_id=ticket_number,
+                eticket_number=eticket_str
             )
             
             
@@ -520,8 +530,10 @@ class BookingOrchestrator:
             except Exception as email_error:
                 print(f"⚠️ Error enviando email (no crítico): {email_error}")
 
-            return {"pnr": pnr, "ticket_number": ticket_number, "ticket_url": ticket_url}
-            
+            return {"pnr": pnr, "ticket_number": ticket_number, "ticket_url": ticket_url,
+                    "eticket_number": eticket_str, "duffel_order_id": ticket_number,
+                    "offer_id": real_offer_id}
+
         except Exception as e:
             print(f"DEBUG: Duffel Booking Error: {e}")
             raise HTTPException(status_code=500, detail=f"Duffel Booking Failed: {str(e)}")
