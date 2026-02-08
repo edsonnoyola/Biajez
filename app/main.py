@@ -451,6 +451,7 @@ def admin_get_session(phone: str, secret: str):
     from app.services.whatsapp_redis import session_manager
 
     session = session_manager.get_session(phone)
+    last_booking = session.get("last_booking", {})
     return {
         "phone": phone,
         "redis_enabled": session_manager.enabled,
@@ -464,6 +465,11 @@ def admin_get_session(phone: str, secret: str):
             "pending_change_offers": bool(session.get("pending_change_offers")),
             "last_updated": session.get("last_updated"),
             "messages_count": len(session.get("messages", [])),
+            "last_booking_pnr": last_booking.get("pnr"),
+            "last_booking_order_id": last_booking.get("duffel_order_id"),
+            "last_booking_offer_id": last_booking.get("offer_id"),
+            "pending_seat_selection": bool(session.get("pending_seat_selection")),
+            "pending_baggage": bool(session.get("pending_baggage")),
         }
     }
 
