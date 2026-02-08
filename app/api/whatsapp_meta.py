@@ -1002,13 +1002,17 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
             from app.services.seat_selection_service import SeatSelectionService
             seat_service = SeatSelectionService()
-            service_id = seat_service.find_seat_service_id(seat_map, seat_code)
+            seat_info = seat_service.find_seat_service_id(seat_map, seat_code)
 
-            if not service_id:
+            if not seat_info:
                 send_whatsapp_message(from_number, f"❌ Asiento *{seat_code}* no disponible. Elige otro del mapa.")
                 return {"status": "ok"}
 
-            result = await seat_service.select_seat(order_id, service_id)
+            result = await seat_service.select_seat(
+                order_id, seat_info["service_id"],
+                amount=seat_info.get("price", "0"),
+                currency=seat_info.get("currency", "USD")
+            )
             if result.get("success"):
                 response_text = f"✅ *Asiento {seat_code} confirmado*\n\n"
                 response_text += f"PNR: {seat_pnr}\n"

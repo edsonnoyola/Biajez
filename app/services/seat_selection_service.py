@@ -112,13 +112,15 @@ class SeatSelectionService:
             print(f"Seat map API error: {e}")
             return {"error": str(e)}
 
-    async def select_seat(self, order_id: str, service_id: str) -> Dict:
+    async def select_seat(self, order_id: str, service_id: str, amount: str = "0", currency: str = "USD") -> Dict:
         """
         Add a seat selection to an order
 
         Args:
             order_id: Duffel order ID
             service_id: Seat service ID from seat map
+            amount: Price amount for the seat
+            currency: Currency code
 
         Returns:
             Selection result
@@ -129,7 +131,9 @@ class SeatSelectionService:
                 "data": {
                     "add_services": [{"id": service_id, "quantity": 1}],
                     "payment": {
-                        "type": "balance"
+                        "type": "balance",
+                        "amount": amount,
+                        "currency": currency
                     }
                 }
             }
@@ -205,12 +209,16 @@ class SeatSelectionService:
 
         return msg
 
-    def find_seat_service_id(self, seat_map: Dict, designator: str) -> Optional[str]:
-        """Find the service ID for a specific seat"""
+    def find_seat_service_id(self, seat_map: Dict, designator: str) -> Optional[Dict]:
+        """Find the service ID, price and currency for a specific seat"""
         for segment in seat_map.get("segments", []):
             for cabin in segment.get("cabins", []):
                 for row in cabin.get("rows", []):
                     for seat in row.get("seats", []):
                         if seat.get("designator", "").upper() == designator.upper():
-                            return seat.get("service_id")
+                            return {
+                                "service_id": seat.get("service_id"),
+                                "price": seat.get("price", "0"),
+                                "currency": seat.get("currency", "USD")
+                            }
         return None
