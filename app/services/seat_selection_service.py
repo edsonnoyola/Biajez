@@ -127,7 +127,7 @@ class SeatSelectionService:
             url = f"{self.base_url}/air/orders/{order_id}/services"
             payload = {
                 "data": {
-                    "add_services": [{"id": service_id}],
+                    "add_services": [{"id": service_id, "quantity": 1}],
                     "payment": {
                         "type": "balance"
                     }
