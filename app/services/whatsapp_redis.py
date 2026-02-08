@@ -19,12 +19,20 @@ class RedisSessionManager:
         # Always initialize fallback storage (used as backup even when Redis works)
         self.fallback_storage = {}
 
+        # Support TLS connections (rediss://) for Render external Redis
+        redis_kwargs = {
+            "decode_responses": True,
+            "socket_connect_timeout": 5,
+            "socket_timeout": 5,
+        }
+        if redis_url.startswith("rediss://"):
+            import ssl
+            redis_kwargs["ssl_cert_reqs"] = ssl.CERT_NONE
+
         try:
             self.redis_client = redis.from_url(
                 redis_url,
-                decode_responses=True,
-                socket_connect_timeout=5,
-                socket_timeout=5
+                **redis_kwargs
             )
             # Test connection
             self.redis_client.ping()
@@ -68,7 +76,11 @@ class RedisSessionManager:
                         # Try to reconnect
                         try:
                             redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-                            self.redis_client = redis.from_url(redis_url, decode_responses=True)
+                            rkw = {"decode_responses": True}
+                            if redis_url.startswith("rediss://"):
+                                import ssl
+                                rkw["ssl_cert_reqs"] = ssl.CERT_NONE
+                            self.redis_client = redis.from_url(redis_url, **rkw)
                             self.redis_client.ping()
                             print("🔄 Redis reconnected")
                         except:
@@ -121,7 +133,11 @@ class RedisSessionManager:
                         # Try to reconnect
                         try:
                             redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-                            self.redis_client = redis.from_url(redis_url, decode_responses=True)
+                            rkw = {"decode_responses": True}
+                            if redis_url.startswith("rediss://"):
+                                import ssl
+                                rkw["ssl_cert_reqs"] = ssl.CERT_NONE
+                            self.redis_client = redis.from_url(redis_url, **rkw)
                             self.redis_client.ping()
                             print("🔄 Redis reconnected for save")
                         except:
@@ -183,13 +199,21 @@ class RateLimiter:
         
         self.max_messages = max_messages
         self.window_seconds = window_seconds
-        
+
+        # Support TLS connections (rediss://) for Render external Redis
+        redis_kwargs = {
+            "decode_responses": True,
+            "socket_connect_timeout": 5,
+            "socket_timeout": 5,
+        }
+        if redis_url.startswith("rediss://"):
+            import ssl
+            redis_kwargs["ssl_cert_reqs"] = ssl.CERT_NONE
+
         try:
             self.redis_client = redis.from_url(
                 redis_url,
-                decode_responses=True,
-                socket_connect_timeout=5,
-                socket_timeout=5
+                **redis_kwargs
             )
             self.redis_client.ping()
             self.enabled = True
