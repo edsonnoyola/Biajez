@@ -3166,7 +3166,7 @@ def format_for_whatsapp(text: str, session: dict) -> str:
     """
     if session.get("pending_flights"):
         flights = session["pending_flights"]
-        flight_list = "\n\n✈️ *Vuelos encontrados:*\n\n"
+        flight_list = "\n\n✈️ *Vuelos encontrados:*\n🔄 _Solo vuelos con cambio permitido_\n\n"
 
         for i, flight in enumerate(flights, 1):
             price = flight.get("price", "N/A")
