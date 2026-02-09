@@ -98,7 +98,7 @@ class TicketGenerator:
         TICKET_STORE[pnr] = html_content
 
         # Return API URL (will be served by /ticket/{pnr} endpoint)
-        base_url = os.getenv("BASE_URL", "https://biajez-ah0g.onrender.com")
+        base_url = os.getenv("BASE_URL", "https://biajez-d08x.onrender.com")
         return f"{base_url}/ticket/{pnr}"
             
     @staticmethod
@@ -173,5 +173,5 @@ class TicketGenerator:
         TICKET_STORE[pnr] = html_content
 
         # Return API URL
-        base_url = os.getenv("BASE_URL", "https://biajez-ah0g.onrender.com")
+        base_url = os.getenv("BASE_URL", "https://biajez-d08x.onrender.com")
         return f"{base_url}/ticket/{pnr}"

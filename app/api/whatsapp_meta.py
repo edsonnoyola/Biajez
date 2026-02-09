@@ -1554,6 +1554,14 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 response_text += f"🛫 *Ruta:* {dep_city} → {arr_city}\n"
                 response_text += f"📅 *Fecha:* {dep_date}\n"
                 response_text += f"💰 *Total:* ${amount} USD\n"
+                # Show change policy from selected flight metadata
+                flight_metadata = flight_dict.get("metadata", {})
+                if flight_metadata.get("changeable"):
+                    penalty = flight_metadata.get("change_penalty")
+                    if penalty and float(penalty) > 0:
+                        response_text += f"🔄 *Cambio:* Penalización ${penalty}\n"
+                    else:
+                        response_text += f"🔄 *Cambio:* Sin costo\n"
                 # Show e-ticket if available
                 eticket = booking_result.get("eticket_number")
                 if eticket:
@@ -3172,10 +3180,19 @@ def format_for_whatsapp(text: str, session: dict) -> str:
                 origin = segments[0].get("departure_iata", "")
                 final_dest = segments[-1].get("arrival_iata", "")
 
-                # Header with price and refundable status
+                # Header with price and change conditions
+                metadata = flight.get("metadata", {})
+                change_tag = ""
+                if metadata.get("changeable"):
+                    penalty = metadata.get("change_penalty")
+                    if penalty and float(penalty) > 0:
+                        change_tag = f"🔄 Cambio: ${penalty}"
+                    else:
+                        change_tag = "🔄 Cambio gratis"
                 refund_tag = "✅ Reembolsable" if refundable else ""
+                tags = " ".join(t for t in [change_tag, refund_tag] if t)
                 flight_list += f"━━━━━━━━━━━━━━━━━━━━\n"
-                flight_list += f"*{i}. ${price} USD* {refund_tag}\n"
+                flight_list += f"*{i}. ${price} USD* {tags}\n"
 
                 # Show each segment with full details
                 for seg_idx, seg in enumerate(segments):

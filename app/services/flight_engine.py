@@ -169,6 +169,10 @@ class FlightAggregator:
             if flight.provider == "DUFFEL":
                 score += 5
 
+            # 7. CHANGEABLE TICKET BOOST
+            if flight.metadata and flight.metadata.get("changeable"):
+                score += 10
+
             flight.score = score
 
         # FILTER by time_of_day if specified
@@ -383,6 +387,16 @@ class FlightAggregator:
                 # Format: DUFFEL::offer_id::passenger_id
                 passenger_id = offer['passengers'][0]['id']
                 
+                # Extract change/refund conditions
+                conditions = offer.get("conditions", {})
+                change_info = conditions.get("change_before_departure", {})
+                refund_info = conditions.get("refund_before_departure", {})
+
+                changeable = change_info.get("allowed", False) if change_info else False
+                change_penalty = change_info.get("penalty_amount") if change_info else None
+                change_currency = change_info.get("penalty_currency") if change_info else None
+                refundable = refund_info.get("allowed", False) if refund_info else False
+
                 flights.append(AntigravityFlight(
                     offer_id=f"DUFFEL::{offer['id']}::{passenger_id}",
                     provider="DUFFEL",
@@ -391,9 +405,22 @@ class FlightAggregator:
                     segments=segments,
                     duration_total=offer['slices'][0]['duration'] or "00:00",
                     cabin_class=cabin,
-                    refundable=False
+                    refundable=refundable,
+                    metadata={
+                        "changeable": changeable,
+                        "change_penalty": change_penalty,
+                        "change_penalty_currency": change_currency,
+                    }
                 ))
             
+            # RULE: Only show changeable flights
+            changeable_flights = [f for f in flights if f.metadata and f.metadata.get("changeable")]
+            if changeable_flights:
+                print(f"DEBUG: Filtered to {len(changeable_flights)} changeable flights (from {len(flights)} total)")
+                flights = changeable_flights
+            else:
+                print("WARNING: No changeable flights found, returning all results")
+
             print(f"DEBUG: Returning {len(flights)} flights from Duffel")
             return flights
         except Exception as e:
