@@ -387,10 +387,10 @@ class FlightAggregator:
                 # Format: DUFFEL::offer_id::passenger_id
                 passenger_id = offer['passengers'][0]['id']
                 
-                # Extract change/refund conditions
-                conditions = offer.get("conditions", {})
-                change_info = conditions.get("change_before_departure", {})
-                refund_info = conditions.get("refund_before_departure", {})
+                # Extract change/refund conditions (use `or {}` because Duffel may return None explicitly)
+                conditions = offer.get("conditions") or {}
+                change_info = conditions.get("change_before_departure") or {}
+                refund_info = conditions.get("refund_before_departure") or {}
 
                 changeable = change_info.get("allowed", False) if change_info else False
                 change_penalty = change_info.get("penalty_amount") if change_info else None
