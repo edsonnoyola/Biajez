@@ -281,7 +281,7 @@ def read_root():
 @app.get("/health")
 def health_check():
     """Health check endpoint for keep-alive pings"""
-    return {"status": "ok", "service": "biajez"}
+    return {"status": "ok", "service": "biajez", "version": "2026-02-09a"}
 
 
 @app.get("/ticket/{pnr}")
