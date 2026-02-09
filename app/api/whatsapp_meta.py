@@ -1555,7 +1555,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 response_text += f"📅 *Fecha:* {dep_date}\n"
                 response_text += f"💰 *Total:* ${amount} USD\n"
                 # Show change policy from selected flight metadata
-                flight_metadata = flight_dict.get("metadata", {})
+                flight_metadata = flight_dict.get("metadata") or {}
                 if flight_metadata.get("changeable"):
                     penalty = flight_metadata.get("change_penalty")
                     if penalty and float(penalty) > 0:
@@ -3181,7 +3181,7 @@ def format_for_whatsapp(text: str, session: dict) -> str:
                 final_dest = segments[-1].get("arrival_iata", "")
 
                 # Header with price and change conditions
-                metadata = flight.get("metadata", {})
+                metadata = flight.get("metadata") or {}
                 change_tag = ""
                 if metadata.get("changeable"):
                     penalty = metadata.get("change_penalty")
