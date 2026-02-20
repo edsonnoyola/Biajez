@@ -1099,7 +1099,9 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
                 from app.services.baggage_service import BaggageService
                 baggage_service = BaggageService(db)
-                result = baggage_service.add_baggage(bag_order_id, [service_id])
+                # Pass price info so Duffel gets correct payment.amount+currency
+                svc_prices = [{"id": service_id, "amount": selected_option.get("price", "0"), "currency": selected_option.get("currency", "USD")}]
+                result = baggage_service.add_baggage(bag_order_id, [service_id], service_prices=svc_prices)
 
                 if result.get("success"):
                     price = selected_option.get("price", "0")

@@ -20,6 +20,8 @@ class BaggageService:
         self.headers = {
             "Authorization": f"Bearer {self.duffel_token}",
             "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
             "Duffel-Version": "v2"
         }
 
@@ -69,12 +71,15 @@ class BaggageService:
 
                 for service in services_data:
                     if service.get("type") == "baggage":
+                        metadata = service.get("metadata") or {}
                         baggage_options.append({
                             "id": service.get("id"),
                             "price": service.get("total_amount"),
                             "currency": service.get("total_currency"),
                             "description": self._format_baggage_description(service),
-                            "weight_kg": service.get("metadata", {}).get("maximum_weight_kg"),
+                            "weight_kg": metadata.get("maximum_weight_kg"),
+                            "max_quantity": service.get("maximum_quantity", 1),
+                            "bag_type": metadata.get("type", "checked"),
                             "segment_ids": service.get("segment_ids", []),
                             "passenger_ids": service.get("passenger_ids", [])
                         })
@@ -94,13 +99,18 @@ class BaggageService:
                 "error": str(e)
             }
 
-    def add_baggage(self, order_id: str, service_ids: List[str]) -> Dict:
+    def add_baggage(self, order_id: str, service_ids: List[str],
+                    service_prices: Optional[List[Dict]] = None) -> Dict:
         """
-        Add baggage services to an existing order
+        Add baggage services to an existing order.
+
+        Duffel requires payment.amount and payment.currency in the payload.
+        If service_prices not provided, fetches available_services to look up prices.
 
         Args:
             order_id: Duffel order ID
             service_ids: List of baggage service IDs to add
+            service_prices: Optional list of {"id": ..., "amount": ..., "currency": ...}
 
         Returns:
             Dict with result of the operation
@@ -108,18 +118,45 @@ class BaggageService:
         try:
             url = f"{self.base_url}/air/orders/{order_id}/services"
 
-            # Create change request
-            services_to_add = [{"id": sid, "quantity": 1} for sid in service_ids]
+            # Build price lookup: need amount+currency for payment
+            price_map = {}
+            if service_prices:
+                for sp in service_prices:
+                    price_map[sp["id"]] = {"amount": sp["amount"], "currency": sp["currency"]}
+            else:
+                # Fetch available services to get prices
+                avail_url = f"{self.base_url}/air/orders/{order_id}/available_services"
+                avail_resp = requests.get(avail_url, headers=self.headers)
+                if avail_resp.status_code == 200:
+                    for svc in avail_resp.json().get("data", []):
+                        price_map[svc["id"]] = {
+                            "amount": svc.get("total_amount", "0"),
+                            "currency": svc.get("total_currency", "USD")
+                        }
+
+            # Calculate total payment amount (amount * quantity per service)
+            total_amount = 0.0
+            payment_currency = "USD"
+            services_to_add = []
+            for sid in service_ids:
+                qty = 1
+                services_to_add.append({"id": sid, "quantity": qty})
+                if sid in price_map:
+                    total_amount += float(price_map[sid]["amount"]) * qty
+                    payment_currency = price_map[sid]["currency"]
 
             payload = {
                 "data": {
                     "add_services": services_to_add,
                     "payment": {
-                        "type": "balance"
+                        "type": "balance",
+                        "currency": payment_currency,
+                        "amount": f"{total_amount:.2f}"
                     }
                 }
             }
 
+            print(f"🧳 Adding baggage to {order_id}: {len(service_ids)} services, total ${total_amount:.2f} {payment_currency}")
             response = requests.post(url, json=payload, headers=self.headers)
 
             if response.status_code in [200, 201]:
@@ -219,14 +256,20 @@ class BaggageService:
             lines.append("")
 
         # Available options
+        bag_type_names = {
+            "carry_on": "Mano",
+            "checked": "Documentada",
+            "personal_item": "Personal"
+        }
         if baggage_data.get("available_options"):
             lines.append("*Agregar:*")
-            for i, option in enumerate(baggage_data["available_options"][:3], 1):
+            for i, option in enumerate(baggage_data["available_options"][:5], 1):
                 price = option.get("price", "0")
                 currency = option.get("currency", "USD")
                 weight = option.get("weight_kg", "")
-                weight_str = f" ({weight}kg)" if weight else ""
-                lines.append(f"{i}. Maleta{weight_str} ${price} {currency}")
+                bag_type = bag_type_names.get(option.get("bag_type", ""), "Maleta")
+                weight_str = f" {weight}kg" if weight else ""
+                lines.append(f"{i}. {bag_type}{weight_str} - ${price} {currency}")
         else:
             lines.append("Sin opciones adicionales")
 
