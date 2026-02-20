@@ -342,14 +342,6 @@ def get_ticket(pnr: str, t: str = None):
     )
 
 
-@app.get("/scheduler/status")
-def get_scheduler_status(_admin=_Depends(_verify_admin)):
-    """Get status of all scheduled background jobs (protected)"""
-    return {
-        "jobs": scheduler_service.get_jobs_status()
-    }
-
-
 # ============================================
 # ADMIN ENDPOINTS (Protected)
 # ============================================
@@ -367,6 +359,14 @@ def _verify_admin(authorization: str = Header(None), secret: str = None):
     if not ADMIN_SECRET or token != ADMIN_SECRET:
         raise _HTTPException(status_code=403, detail="Forbidden")
     return True
+
+
+@app.get("/scheduler/status")
+def get_scheduler_status(_admin=_Depends(_verify_admin)):
+    """Get status of all scheduled background jobs (protected)"""
+    return {
+        "jobs": scheduler_service.get_jobs_status()
+    }
 
 @app.get("/admin/last-confirm/{phone}")
 def admin_last_confirm(phone: str, _admin=_Depends(_verify_admin)):
