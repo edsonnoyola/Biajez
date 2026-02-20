@@ -160,8 +160,24 @@ BASE_URL                 # https://biajez-d08x.onrender.com
 - `refresh_visa_cache` - diario 3 AM
 - `send_trip_reminders` - diario 8 AM
 
+## Registro de perfil (9 pasos via WhatsApp)
+1. Nombre completo (legal)
+2. Email
+3. Fecha nacimiento
+4. Género (M/F)
+5. Pasaporte (opcional: número, país, vencimiento)
+6. Global Entry / TSA PreCheck - KTN (opcional)
+7. Aerolínea preferida (opcional, código IATA)
+8. Asiento preferido (ventana/pasillo/cualquiera)
+9. Clase preferida (economy/business/primera)
+
+Campos editables post-registro: `cambiar asiento ventana`, `cambiar clase business`, `cambiar aerolinea AM`, `cambiar ktn 12345`
+
+Al reservar, booking_execution.py envía a Duffel: pasaporte, KTN, loyalty programs (match por aerolínea), datos personales.
+
 ## Notas importantes
 - Tickets HTML se guardan en DB (ticket_html column en trips) + cache en memoria
 - Hotel booking via WhatsApp usa flujo completo Duffel Stays (search > rates > quote > book)
 - booking_execution.py `_book_hotel()` tiene legacy Amadeus code (solo se usa para MOCK hotels de prueba)
 - Siempre aceptar status 200 Y 201 en POST requests a Duffel
+- Solo vuelos flexibles (cambiables o cancelables) se muestran al usuario

@@ -408,7 +408,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
             response_text = "👤 *Registro de Perfil*\n\n"
             response_text += "Vamos a registrar tus datos para poder reservar vuelos.\n\n"
-            response_text += "📛 *Paso 1/6:* ¿Cuál es tu *nombre completo* como aparece en tu identificación?\n\n"
+            response_text += "📛 *Paso 1/9:* ¿Cuál es tu *nombre completo* como aparece en tu identificación?\n\n"
             response_text += "_Ejemplo: Juan Carlos Pérez García_\n\n"
             response_text += "_(Escribe *cancelar* en cualquier momento para salir)_"
             send_whatsapp_message(from_number, response_text)
@@ -435,7 +435,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
                 update_profile_sql(session_user_id, legal_first_name=first_name, legal_last_name=last_name, registration_step="email")
                 response_text = f"✅ Nombre: *{first_name} {last_name}*\n\n"
-                response_text += "📧 *Paso 2/6:* ¿Cuál es tu *email*?\n\n"
+                response_text += "📧 *Paso 2/9:* ¿Cuál es tu *email*?\n\n"
                 response_text += "_Aquí recibirás confirmaciones de reserva_"
 
             elif step == "email":
@@ -443,7 +443,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     email = incoming_msg.strip().lower()
                     update_profile_sql(session_user_id, email=email, registration_step="nacimiento")
                     response_text = f"✅ Email: *{email}*\n\n"
-                    response_text += "📅 *Paso 3/6:* ¿Cuál es tu *fecha de nacimiento*?\n\n"
+                    response_text += "📅 *Paso 3/9:* ¿Cuál es tu *fecha de nacimiento*?\n\n"
                     response_text += "_Formato: DD/MM/AAAA (ejemplo: 15/03/1990)_"
                 else:
                     response_text = "❌ Email inválido. Por favor ingresa un email válido.\n\n"
@@ -465,7 +465,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
                     update_profile_sql(session_user_id, dob=str(parsed_date), registration_step="genero")
                     response_text = f"✅ Nacimiento: *{parsed_date}*\n\n"
-                    response_text += "🚻 *Paso 4/6:* ¿Cuál es tu *género*?\n\n"
+                    response_text += "🚻 *Paso 4/9:* ¿Cuál es tu *género*?\n\n"
                     response_text += "Responde: *M* (Masculino) o *F* (Femenino)"
                 except:
                     response_text = "❌ Fecha inválida.\n\nPor favor usa el formato: *DD/MM/AAAA*\n_Ejemplo: 15/03/1990_"
@@ -476,7 +476,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     gender_val = "M" if genero in ["M", "MASCULINO", "HOMBRE"] else "F"
                     update_profile_sql(session_user_id, gender=gender_val, registration_step="pasaporte")
                     response_text = f"✅ Género: *{'Masculino' if gender_val == 'M' else 'Femenino'}*\n\n"
-                    response_text += "🛂 *Paso 5/6:* ¿Tienes *pasaporte*?\n\n"
+                    response_text += "🛂 *Paso 5/9:* ¿Tienes *pasaporte*?\n\n"
                     response_text += "Responde *SI* para registrarlo o *NO* para omitir\n"
                     response_text += "_El pasaporte es necesario para vuelos internacionales_"
                 else:
@@ -487,14 +487,11 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     update_profile_sql(session_user_id, registration_step="pasaporte_numero")
                     response_text = "🛂 *Número de pasaporte:*\n\n_Ingresa el número de tu pasaporte_"
                 elif incoming_msg.strip().lower() in ["no", "n", "omitir"]:
-                    update_profile_sql(session_user_id, registration_step=None, passport_number="N/A", passport_country="XX", passport_expiry="2099-01-01")
-                    profile = get_profile_sql(session_user_id)
-                    response_text = "✅ *¡Perfil registrado!*\n\n"
-                    response_text += f"👤 {profile['legal_first_name']} {profile['legal_last_name']}\n"
-                    response_text += f"📧 {profile['email']}\n"
-                    response_text += f"📅 {profile['dob']}\n\n"
-                    response_text += "Ya puedes reservar vuelos nacionales.\n"
-                    response_text += "_Para vuelos internacionales necesitarás pasaporte._"
+                    update_profile_sql(session_user_id, passport_number="N/A", passport_country="XX", passport_expiry="2099-01-01", registration_step="ktn")
+                    response_text = "✅ Pasaporte omitido\n\n"
+                    response_text += "🛃 *Paso 6/9:* ¿Tienes *Global Entry / TSA PreCheck*?\n\n"
+                    response_text += "Si tienes, escribe tu número (Known Traveler Number)\n"
+                    response_text += "Si no, escribe *no*"
                 else:
                     response_text = "Por favor responde *SI* o *NO*"
 
@@ -525,23 +522,81 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                             continue
 
                     if parsed_date:
-                        update_profile_sql(session_user_id, passport_expiry=str(parsed_date), registration_step=None)
-                        profile = get_profile_sql(session_user_id)
-                        response_text = "✅ *¡Perfil completo!*\n\n"
-                        response_text += f"👤 {profile['legal_first_name']} {profile['legal_last_name']}\n"
-                        response_text += f"📧 {profile['email']}\n"
-                        response_text += f"📅 Nacimiento: {profile['dob']}\n"
-                        from app.utils.encryption import decrypt_value
-                        _decrypted_pp = decrypt_value(str(profile['passport_number']))
-                        passport_display = _decrypted_pp[-4:] if len(_decrypted_pp) > 4 else _decrypted_pp
-                        response_text += f"🛂 Pasaporte: {profile['passport_country']} - ***{passport_display}\n"
-                        response_text += f"   Vence: {profile['passport_expiry']}\n\n"
-                        response_text += "🎉 *Ya puedes reservar vuelos nacionales e internacionales!*"
+                        update_profile_sql(session_user_id, passport_expiry=str(parsed_date), registration_step="ktn")
+                        response_text = f"✅ Pasaporte registrado\n\n"
+                        response_text += "🛃 *Paso 6/9:* ¿Tienes *Global Entry / TSA PreCheck*?\n\n"
+                        response_text += "Si tienes, escribe tu número (Known Traveler Number)\n"
+                        response_text += "Si no, escribe *no*"
                     else:
                         response_text = "❌ Fecha inválida. Usa formato: *DD/MM/AAAA*\n_Ejemplo: 15/06/2030_\n\n_(Escribe *cancelar* para salir)_"
                 except Exception as e:
                     print(f"ERROR in pasaporte_vencimiento: {e}")
                     response_text = "❌ Fecha inválida. Usa formato: *DD/MM/AAAA*"
+
+            elif step == "ktn":
+                if incoming_msg.strip().lower() in ["no", "n", "omitir", "no tengo"]:
+                    update_profile_sql(session_user_id, registration_step="aerolinea")
+                    response_text = "✅ Sin Global Entry\n\n"
+                else:
+                    ktn = incoming_msg.strip().upper()
+                    update_profile_sql(session_user_id, known_traveler_number=ktn, registration_step="aerolinea")
+                    response_text = f"✅ KTN: *{ktn}*\n\n"
+                response_text += "✈️ *Paso 7/9:* ¿Tienes alguna *aerolínea preferida*?\n\n"
+                response_text += "Escribe el código (AM, AA, UA, DL, BA, etc.)\n"
+                response_text += "Si no, escribe *no*"
+
+            elif step == "aerolinea":
+                if incoming_msg.strip().lower() in ["no", "n", "omitir", "ninguna", "no tengo"]:
+                    update_profile_sql(session_user_id, registration_step="asiento")
+                    response_text = "✅ Sin aerolínea preferida\n\n"
+                else:
+                    airline = incoming_msg.strip().upper()[:2]
+                    update_profile_sql(session_user_id, preferred_airline=airline, registration_step="asiento")
+                    response_text = f"✅ Aerolínea preferida: *{airline}*\n\n"
+                response_text += "💺 *Paso 8/9:* ¿Prefieres *ventana* o *pasillo*?\n\n"
+                response_text += "Responde: *ventana*, *pasillo* o *cualquiera*"
+
+            elif step == "asiento":
+                seat_map = {"ventana": "WINDOW", "pasillo": "AISLE", "medio": "MIDDLE", "cualquiera": "ANY", "window": "WINDOW", "aisle": "AISLE"}
+                seat_val = seat_map.get(incoming_msg.strip().lower(), "ANY")
+                update_profile_sql(session_user_id, seat_preference=seat_val, registration_step="clase")
+                seat_display = {"WINDOW": "Ventana", "AISLE": "Pasillo", "MIDDLE": "Medio", "ANY": "Cualquiera"}
+                response_text = f"✅ Asiento: *{seat_display.get(seat_val, seat_val)}*\n\n"
+                response_text += "🎫 *Paso 9/9:* ¿Qué *clase* prefieres?\n\n"
+                response_text += "*1.* Economy\n"
+                response_text += "*2.* Business\n"
+                response_text += "*3.* Primera\n\n"
+                response_text += "Responde con el número o nombre"
+
+            elif step == "clase":
+                class_map = {
+                    "1": "ECONOMY", "economy": "ECONOMY", "economica": "ECONOMY", "turista": "ECONOMY",
+                    "2": "BUSINESS", "business": "BUSINESS", "ejecutiva": "BUSINESS",
+                    "3": "FIRST", "primera": "FIRST", "first": "FIRST"
+                }
+                class_val = class_map.get(incoming_msg.strip().lower(), "ECONOMY")
+                update_profile_sql(session_user_id, flight_class_preference=class_val, registration_step=None)
+                class_display = {"ECONOMY": "Economy", "BUSINESS": "Business", "FIRST": "Primera"}
+
+                profile = get_profile_sql(session_user_id)
+                response_text = "🎉 *¡Perfil completo!*\n\n"
+                response_text += f"👤 {profile['legal_first_name']} {profile['legal_last_name']}\n"
+                response_text += f"📧 {profile['email']}\n"
+                response_text += f"📅 Nacimiento: {profile['dob']}\n"
+                if profile.get('passport_number') and profile['passport_number'] not in ['', 'N/A']:
+                    from app.utils.encryption import decrypt_value
+                    _decrypted_pp = decrypt_value(str(profile['passport_number']))
+                    passport_display = _decrypted_pp[-4:] if len(_decrypted_pp) > 4 else _decrypted_pp
+                    response_text += f"🛂 Pasaporte: {profile['passport_country']} - ***{passport_display}\n"
+                if profile.get('known_traveler_number'):
+                    response_text += f"🛃 Global Entry: {profile['known_traveler_number']}\n"
+                if profile.get('preferred_airline'):
+                    response_text += f"✈️ Aerolínea: {profile['preferred_airline']}\n"
+                seat_pref = {"WINDOW": "Ventana", "AISLE": "Pasillo", "MIDDLE": "Medio", "ANY": "Cualquiera"}.get(profile.get('seat_preference', ''), 'Cualquiera')
+                response_text += f"💺 Asiento: {seat_pref}\n"
+                response_text += f"🎫 Clase: {class_display.get(class_val, class_val)}\n\n"
+                response_text += "*Ya puedes reservar vuelos!* ✈️\n"
+                response_text += "_Escribe: vuelo cdmx a cancun mañana_"
 
             if response_text:
                 send_whatsapp_message(from_number, response_text)
@@ -553,44 +608,51 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
         # ===== HELP COMMAND =====
         if incoming_msg.lower() in ["ayuda", "help", "que puedes hacer", "qué puedes hacer", "comandos", "menu", "menú"]:
-            help_text = """*Biatriz - Tu Asistente de Viajes* ✈️
+            help_text = """*Biajez - Tu Asistente de Viajes* ✈️
 
 *BUSCAR Y RESERVAR*
-• vuelo MEX a MAD 15 marzo
-• hotel en Madrid del 15 al 18
-• apartar vuelo _(reservar sin pagar)_
-• pagar _(completar pago pendiente)_
+✈️ _vuelo cdmx a cancun 15 marzo_
+🏨 _hotel en cancun del 15 al 18_
 
 *MIS VIAJES*
-• itinerario _(próximo viaje)_
-• historial _(viajes pasados)_
-• cancelar vuelo
-• cambiar vuelo
+📋 mis viajes — ver reservas activas
+📖 historial — viajes pasados
+📄 itinerario — detalle del próximo
+❌ cancelar vuelo — cancelar reserva
+🔄 cambiar vuelo — cambiar fecha/ruta
 
-*EXTRAS DE VUELO*
-• equipaje _(agregar maletas)_
-• asientos _(elegir lugar)_
-• servicios _(comidas, WiFi)_
-• checkin / auto checkin
+*DESPUÉS DE RESERVAR*
+🧳 equipaje — agregar maletas
+💺 asientos — elegir lugar
+🍽️ servicios — comidas, WiFi, extras
+✅ checkin — ver estado de check-in
+⏰ auto checkin — recordatorio 24h antes
 
-*MILLAS Y ALERTAS*
-• millas _(ver programas)_
-• agregar millas AM 123456
-• eliminar millas AM
-• alertas _(ver alertas precio)_
-• crear alerta _(después de buscar)_
+*MILLAS Y CRÉDITOS*
+🎖️ millas — ver programas registrados
+➕ _agregar millas AM 123456_
+➖ _eliminar millas AM_
+💳 creditos — créditos por cancelaciones
 
-*UTILIDADES*
-• clima cancun
-• cambio USD
-• estado vuelo AM123
-• visa US _(requisitos)_
+*ALERTAS DE PRECIO*
+🔔 alertas — ver mis alertas
+📉 _crear alerta_ (después de buscar)
+
+*HERRAMIENTAS*
+🌤️ _clima cancun_
+💱 _cambio USD_
+📡 _estado vuelo AM123_
+🛂 _visa US_
 
 *MI CUENTA*
-• perfil _(ver preferencias)_
-• reset _(limpiar sesión)_
+👤 perfil — ver mis datos
+✏️ _cambiar asiento ventana_
+✏️ _cambiar clase business_
+✏️ _cambiar aerolinea AM_
+✏️ _cambiar ktn 12345678_
+🔄 reset — reiniciar sesión
 
-_Escribe lo que necesitas en lenguaje natural_ 😊"""
+_También puedes escribir lo que necesites en tus palabras_ 😊"""
             send_whatsapp_message(from_number, help_text)
             return {"status": "ok"}
         
@@ -621,10 +683,15 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 response_text += f"   País: {profile.passport_country}\n"
                 response_text += f"   Vence: {profile.passport_expiry}\n"
 
+            if profile.known_traveler_number:
+                response_text += f"🛃 Global Entry/TSA: {profile.known_traveler_number}\n"
+
             # Mostrar preferencias
+            seat_display = {"WINDOW": "Ventana", "AISLE": "Pasillo", "MIDDLE": "Medio", "ANY": "Cualquiera"}
+            class_display = {"ECONOMY": "Economy", "BUSINESS": "Business", "FIRST": "Primera"}
             response_text += "\n✈️ *Preferencias de Vuelo*\n"
-            response_text += f"   Asiento: {profile.seat_preference or 'ANY'}\n"
-            response_text += f"   Clase: {profile.flight_class_preference or 'ECONOMY'}\n"
+            response_text += f"   Asiento: {seat_display.get(profile.seat_preference, profile.seat_preference or 'Cualquiera')}\n"
+            response_text += f"   Clase: {class_display.get(profile.flight_class_preference, profile.flight_class_preference or 'Economy')}\n"
             if profile.preferred_airline:
                 response_text += f"   Aerolínea: {profile.preferred_airline}\n"
 
@@ -653,7 +720,10 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 field_map = {
                     "asiento": ("seat_preference", {"ventana": "WINDOW", "pasillo": "AISLE", "medio": "MIDDLE", "cualquiera": "ANY"}),
                     "clase": ("flight_class_preference", {"economy": "ECONOMY", "ejecutiva": "BUSINESS", "business": "BUSINESS", "primera": "FIRST", "first": "FIRST"}),
-                    "hotel": ("hotel_preference", {"3": "3_STAR", "4": "4_STAR", "5": "5_STAR"})
+                    "hotel": ("hotel_preference", {"3": "3_STAR", "4": "4_STAR", "5": "5_STAR"}),
+                    "aerolinea": ("preferred_airline", {}),
+                    "global": ("known_traveler_number", {}),
+                    "ktn": ("known_traveler_number", {}),
                 }
                 
                 field_key = parts[0]
