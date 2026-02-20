@@ -264,7 +264,22 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             return {"status": "ok"}  # Ignore other message types
         
         print(f"📱 WhatsApp from {from_number}: {incoming_msg}")
-        
+
+        # ===== PHONE WHITELIST =====
+        allowed_phones_raw = os.getenv("ALLOWED_PHONES", "")
+        if allowed_phones_raw:
+            allowed_phones = [p.strip() for p in allowed_phones_raw.split(",") if p.strip()]
+            # Check if from_number matches any allowed phone (supports partial match for country code variants)
+            is_allowed = False
+            for allowed in allowed_phones:
+                if from_number.endswith(allowed) or allowed.endswith(from_number) or from_number == allowed:
+                    is_allowed = True
+                    break
+            if not is_allowed:
+                print(f"🚫 BLOCKED: {from_number} not in ALLOWED_PHONES")
+                send_whatsapp_message(from_number, "⚠️ Este servicio está en beta privada.\n\nContacta al administrador para obtener acceso.")
+                return {"status": "blocked"}
+
         # ===== RATE LIMITING =====
         allowed, remaining = rate_limiter.is_allowed(from_number)
         if not allowed:
@@ -327,15 +342,36 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                             break
 
             if not user_id:
-                # Create new WhatsApp user
+                # New user — create ID and start registration automatically
                 user_id = f"whatsapp_{from_number}"
                 print(f"📱 New WhatsApp user (no profile found): {user_id}")
 
+                session["user_id"] = user_id
+                session_manager.save_session(from_number, session)
+
+                # Auto-start registration for new users
+                from app.db.database import engine as reg_engine
+                sql = """INSERT INTO profiles (user_id, phone_number, legal_first_name, legal_last_name,
+                         gender, dob, passport_number, passport_expiry, passport_country, registration_step)
+                         VALUES (:user_id, :phone, '', '', 'M', '1990-01-01', '', '2030-01-01', 'XX', 'nombre')"""
+                try:
+                    with reg_engine.connect() as conn:
+                        conn.execute(text(sql), {"user_id": user_id, "phone": from_number})
+                        conn.commit()
+                except Exception as e:
+                    print(f"⚠️ Could not auto-create profile (may already exist): {e}")
+
+                welcome = "👋 *¡Bienvenido a Biajez!*\n\n"
+                welcome += "Soy tu asistente de viajes por WhatsApp ✈️\n\n"
+                welcome += "Para reservar vuelos necesito algunos datos.\n\n"
+                welcome += "📛 *Paso 1/9:* ¿Cuál es tu *nombre completo* como aparece en tu identificación?\n\n"
+                welcome += "_Ejemplo: Juan Carlos Pérez García_\n\n"
+                welcome += "_(Escribe *cancelar* en cualquier momento para salir)_"
+                send_whatsapp_message(from_number, welcome)
+                return {"status": "ok"}
+
             session["user_id"] = user_id
             session_manager.save_session(from_number, session)
-
-            # NOTE: Welcome message removed - was causing issues after Reset
-            # The AI will greet naturally when appropriate
 
         # ============================================
         # REGISTRO DE PERFIL - HANDLER PRIORITARIO

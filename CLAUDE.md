@@ -137,8 +137,16 @@ if resp.status_code not in [200, 201]:
     send_whatsapp_message(from_number, "No se pudo completar. Intenta de nuevo.")
 ```
 
+## Seguridad
+- **ALLOWED_PHONES** env var: lista de teléfonos autorizados (comma-separated)
+- Si está vacío, TODOS pueden usar el bot (solo para desarrollo)
+- En producción SIEMPRE poner los números autorizados
+- Formato: `ALLOWED_PHONES=5215512345678,5215598765432`
+- Match flexible: soporta variantes de código de país (521 vs 52)
+
 ## Environment Variables
 ```
+ALLOWED_PHONES           # Teléfonos autorizados (comma-separated, IMPORTANTE)
 DUFFEL_ACCESS_TOKEN      # Duffel API (vuelos + hoteles)
 OPENAI_API_KEY           # GPT-4o
 WHATSAPP_ACCESS_TOKEN    # Meta WhatsApp Business API
