@@ -9,10 +9,14 @@ import uuid
 
 
 def normalize_phone(phone: str) -> str:
-    """Normalize phone number: strip non-digits, then 52+10 for Mexico"""
+    """Normalize phone number: strip non-digits, then 52+10 for Mexico.
+    Also handles 10-digit local MX numbers by prepending 52."""
     phone = ''.join(filter(str.isdigit, phone))
     if phone.startswith("521") and len(phone) == 13:
         return "52" + phone[3:]
+    # 10-digit local Mexican number → add country code 52
+    if len(phone) == 10 and not phone.startswith("1"):
+        return "52" + phone
     return phone
 
 

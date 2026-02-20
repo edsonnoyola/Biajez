@@ -128,12 +128,17 @@ _auth_env = os.getenv("AUTHORIZED_NUMBERS", "")
 AUTHORIZED_NUMBERS = [n.strip() for n in _auth_env.split(",") if n.strip()]
 
 def normalize_mx_number(phone_number: str) -> str:
-    """Standardize phone numbers: strip non-digits, then 52+10 for Mexico (remove 1 after 52)"""
+    """Standardize phone numbers: strip non-digits, then 52+10 for Mexico (remove 1 after 52).
+    Also handles 10-digit local MX numbers by prepending 52."""
     phone = ''.join(filter(str.isdigit, phone_number))
 
     # Handle Mexico special case (521 -> 52)
     if phone.startswith("521") and len(phone) == 13:
         return "52" + phone[3:]
+
+    # 10-digit local Mexican number → add country code 52
+    if len(phone) == 10 and not phone.startswith("1"):
+        return "52" + phone
 
     return phone
 
@@ -280,14 +285,21 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         allowed_phones_raw = os.getenv("ALLOWED_PHONES", "")
         if allowed_phones_raw:
             allowed_phones = [p.strip() for p in allowed_phones_raw.split(",") if p.strip()]
-            # Check if from_number matches any allowed phone (supports partial match for country code variants)
+            normalized_from = normalize_mx_number(from_number)
+            # Check: exact, endswith (partial country code), or normalized match
             is_allowed = False
             for allowed in allowed_phones:
-                if from_number.endswith(allowed) or allowed.endswith(from_number) or from_number == allowed:
+                normalized_allowed = normalize_mx_number(allowed)
+                if (from_number == allowed
+                    or from_number.endswith(allowed)
+                    or allowed.endswith(from_number)
+                    or normalized_from == normalized_allowed
+                    or normalized_from.endswith(normalized_allowed)
+                    or normalized_allowed.endswith(normalized_from)):
                     is_allowed = True
                     break
             if not is_allowed:
-                print(f"🚫 BLOCKED: {from_number} not in ALLOWED_PHONES")
+                print(f"🚫 BLOCKED: {from_number} (normalized: {normalized_from}) not in ALLOWED_PHONES: {allowed_phones}")
                 send_whatsapp_message(from_number, "⚠️ Este servicio está en beta privada.\n\nContacta al administrador para obtener acceso.")
                 return {"status": "blocked"}
 
