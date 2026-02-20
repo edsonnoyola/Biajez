@@ -1368,16 +1368,110 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                     else:
                         response_text += f"📊 *Duración total:* {total_hours}h {remaining_mins}m\n"
 
-                # Send with interactive buttons
-                send_interactive_message(
-                    from_number,
-                    response_text,
-                    ["✅ Confirmar", "❌ Cancelar", "🔄 Buscar otro"],
-                    header="🎫 Confirmar reserva"
-                )
+                # Multi-passenger: collect companion data before confirming
+                num_pax = session.get("num_passengers", 1)
+                if num_pax > 1:
+                    response_text += f"\n👥 *{num_pax} pasajeros*\n"
+                    response_text += f"Pasajero 1: Tu perfil registrado\n\n"
+                    response_text += f"Necesito los datos del pasajero 2.\n"
+                    response_text += f"Escribe: *Nombre Apellido, YYYY-MM-DD, M/F*\n"
+                    response_text += f"Ejemplo: _Juan Perez, 1990-05-15, M_"
+                    session["collecting_companion"] = 2  # Which pax we're collecting
+                    session["companions"] = []
+                    send_whatsapp_message(from_number, response_text)
+                else:
+                    # Single passenger — go straight to confirm
+                    send_interactive_message(
+                        from_number,
+                        response_text,
+                        ["✅ Confirmar", "❌ Cancelar", "🔄 Buscar otro"],
+                        header="🎫 Confirmar reserva"
+                    )
                 session_manager.save_session(from_number, session)
                 return {"status": "ok"}
         
+        # Companion data collection for multi-passenger bookings
+        if session.get("collecting_companion") and session.get("selected_flight"):
+            # Allow cancellation during companion collection
+            if incoming_msg.lower() in ['cancelar', 'no', 'salir']:
+                session.pop("collecting_companion", None)
+                session.pop("companions", None)
+                session.pop("selected_flight", None)
+                session_manager.save_session(from_number, session)
+                send_whatsapp_message(from_number, "❌ Reserva cancelada.\n\n¿Quieres buscar otro vuelo?")
+                return {"status": "ok"}
+
+            pax_num = session["collecting_companion"]
+            num_pax = session.get("num_passengers", 1)
+
+            # Parse: "Nombre Apellido, YYYY-MM-DD, M/F"
+            parts = [p.strip() for p in incoming_msg.split(",")]
+            if len(parts) >= 3:
+                name_parts = parts[0].split(maxsplit=1)
+                given_name = name_parts[0] if name_parts else ""
+                family_name = name_parts[1] if len(name_parts) > 1 else ""
+                dob = parts[1].strip()
+                gender = parts[2].strip().upper()
+
+                # Basic validation
+                if not given_name or not family_name:
+                    send_whatsapp_message(from_number, "Necesito nombre y apellido.\nEjemplo: _Juan Perez, 1990-05-15, M_")
+                    return {"status": "ok"}
+                if gender not in ("M", "F"):
+                    send_whatsapp_message(from_number, "Género debe ser M o F.\nEjemplo: _Juan Perez, 1990-05-15, M_")
+                    return {"status": "ok"}
+                # Validate date format
+                try:
+                    datetime.strptime(dob, "%Y-%m-%d")
+                except ValueError:
+                    send_whatsapp_message(from_number, "Fecha inválida. Formato: YYYY-MM-DD\nEjemplo: _Juan Perez, 1990-05-15, M_")
+                    return {"status": "ok"}
+
+                companions = session.get("companions", [])
+                companions.append({
+                    "given_name": given_name,
+                    "family_name": family_name,
+                    "dob": dob,
+                    "gender": gender,
+                })
+                session["companions"] = companions
+
+                if pax_num < num_pax:
+                    # Need more companions
+                    next_pax = pax_num + 1
+                    session["collecting_companion"] = next_pax
+                    send_whatsapp_message(
+                        from_number,
+                        f"✅ Pasajero {pax_num} registrado: {given_name} {family_name}\n\n"
+                        f"Ahora los datos del pasajero {next_pax}:\n"
+                        f"*Nombre Apellido, YYYY-MM-DD, M/F*"
+                    )
+                else:
+                    # All companions collected — show summary and confirm
+                    session.pop("collecting_companion", None)
+                    summary = "👥 *Pasajeros:*\n"
+                    summary += f"1. Tu perfil registrado\n"
+                    for ci, comp in enumerate(companions, 2):
+                        summary += f"{ci}. {comp['given_name']} {comp['family_name']}\n"
+                    summary += "\n¿Confirmar reserva?"
+
+                    send_interactive_message(
+                        from_number,
+                        summary,
+                        ["✅ Confirmar", "❌ Cancelar", "🔄 Buscar otro"],
+                        header="🎫 Confirmar reserva"
+                    )
+                session_manager.save_session(from_number, session)
+                return {"status": "ok"}
+            else:
+                send_whatsapp_message(
+                    from_number,
+                    f"Formato: *Nombre Apellido, YYYY-MM-DD, M/F*\n"
+                    f"Ejemplo: _Juan Perez, 1990-05-15, M_\n\n"
+                    f"Escribe *cancelar* para cancelar."
+                )
+                return {"status": "ok"}
+
         # Check if selecting hotel by number (MUST be before AI processing)
         if incoming_msg.strip().isdigit() and session.get("pending_hotels") and not session.get("pending_flights"):
             hotel_num = int(incoming_msg.strip()) - 1
@@ -1794,8 +1888,10 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                 try:
                     import requests as _req
                     token = os.getenv("DUFFEL_ACCESS_TOKEN")
+                    # Extract real Duffel offer ID (strip DUFFEL:: prefix and ::passenger_id suffix)
+                    price_check_id = offer_id.split("::")[1] if "::" in offer_id else offer_id
                     price_check = _req.get(
-                        f"https://api.duffel.com/air/offers/{offer_id}",
+                        f"https://api.duffel.com/air/offers/{price_check_id}",
                         headers={"Authorization": f"Bearer {token}", "Accept": "application/json",
                                  "Accept-Encoding": "gzip", "Duffel-Version": "v2"},
                         timeout=10
@@ -1822,8 +1918,12 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                     print(f"⚠️ Price verification failed (proceeding): {price_err}")
 
                 orchestrator = BookingOrchestrator(db)
+                booking_num_pax = session.get("num_passengers", 1)
+                booking_companions = session.get("companions", [])
                 booking_result = orchestrator.execute_booking(
-                    session["user_id"], offer_id, provider, amount
+                    session["user_id"], offer_id, provider, amount,
+                    num_passengers=booking_num_pax,
+                    companions=booking_companions
                 )
 
                 pnr = booking_result.get("pnr", "N/A")
@@ -1843,6 +1943,8 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                 response_text += f"✈️ *Aerolínea:* {airline}\n"
                 response_text += f"🛫 *Ruta:* {dep_city} → {arr_city}\n"
                 response_text += f"📅 *Fecha:* {dep_date}\n"
+                if booking_num_pax > 1:
+                    response_text += f"👥 *Pasajeros:* {booking_num_pax}\n"
                 booking_currency = flight_dict.get("currency", "USD")
                 response_text += f"💰 *Total:* ${amount} {booking_currency}\n"
                 # Show change policy from selected flight metadata
@@ -1879,6 +1981,9 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                 session["selected_flight"] = None
                 session["pending_flights"] = []
                 session.pop("flights_timestamp", None)
+                session.pop("companions", None)
+                session.pop("num_passengers", None)
+                session.pop("collecting_companion", None)
                 # Clear any stale post-booking states
                 session.pop("pending_seat_selection", None)
                 session.pop("pending_baggage", None)
@@ -3386,6 +3491,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
 
                     print(f"⚠️ FLIGHT SEARCH FILTERS - time_of_day={time_filter}, cabin={cabin_filter}, airline={airline_filter}")
 
+                    num_pax = arguments.get("passengers", 1)
                     tool_result = await flight_aggregator.search_hybrid_flights(
                         arguments["origin"],
                         arguments["destination"],
@@ -3394,13 +3500,14 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                         cabin_filter,
                         airline_filter,
                         time_filter,
-                        arguments.get("passengers", 1),  # num_passengers
+                        num_pax,
                         user_id=session.get("user_id")  # Pass user_id for loyalty programme in search
                     )
                     tool_result = [f.dict() for f in tool_result]
 
                     if tool_result:
                         session["pending_flights"] = tool_result[:5]
+                        session["num_passengers"] = num_pax
                         session["flights_timestamp"] = datetime.now().isoformat()
                         # Clear any leftover change state from previous flow
                         session.pop("pending_change", None)
@@ -3445,16 +3552,13 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                 elif function_name == "search_multicity_flights":
                     # Multi-city flight search
                     segments = arguments.get("segments", [])
-                    print(f"DEBUG: Multi-city search with {len(segments)} segments")
-
-                    # Fix: Correct method name and pass arguments properly
-                    # Also added debug print to confirmed fixed code usage
-                    print(f"DEBUG: Calling flight_aggregator.search_multicity with pax={arguments.get('passengers', 1)}")
+                    mc_pax = arguments.get("passengers", 1)
+                    print(f"DEBUG: Multi-city search with {len(segments)} segments, pax={mc_pax}")
 
                     tool_result = await flight_aggregator.search_multicity(
                         segments,
                         arguments.get("cabin", "ECONOMY"),
-                        arguments.get("passengers", 1)
+                        mc_pax
                     )
 
                     # CRITICAL FIX: Convert AntigravityFlight objects to dicts
@@ -3463,6 +3567,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
 
                     if tool_result:
                         session["pending_flights"] = tool_result[:5]
+                        session["num_passengers"] = mc_pax
                         session["flights_timestamp"] = datetime.now().isoformat()
                         # Clear any leftover change state from previous flow
                         session.pop("pending_change", None)

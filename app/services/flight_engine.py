@@ -463,10 +463,10 @@ class FlightAggregator:
                             slice_index=slice_idx,
                         ))
                 
-                # Store passenger ID in offer_id for booking retrieval if needed
-                # Format: DUFFEL::offer_id::passenger_id
-                passenger_id = offer['passengers'][0]['id']
-                
+                # Store ALL passenger IDs for multi-passenger booking
+                all_passenger_ids = [p['id'] for p in offer['passengers']]
+                passenger_id = all_passenger_ids[0]
+
                 # Extract change/refund conditions (use `or {}` because Duffel may return None explicitly)
                 conditions = offer.get("conditions") or {}
                 change_info = conditions.get("change_before_departure") or {}
@@ -490,6 +490,7 @@ class FlightAggregator:
                         "changeable": changeable,
                         "change_penalty": change_penalty,
                         "change_penalty_currency": change_currency,
+                        "passenger_ids": all_passenger_ids,
                     }
                 ))
             

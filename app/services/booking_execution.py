@@ -60,7 +60,7 @@ class BookingOrchestrator:
         self.duffel = Duffel(access_token=os.getenv("DUFFEL_ACCESS_TOKEN"))
         stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
-    def execute_booking(self, user_id: str, offer_id: str, provider: str, amount: float, seat_service_id: str = None, num_passengers: int = 1):
+    def execute_booking(self, user_id: str, offer_id: str, provider: str, amount: float, seat_service_id: str = None, num_passengers: int = 1, companions: list = None):
         # 1. Context Loading - Use RAW SQL to ensure we get latest data
         from app.db.database import engine
         from sqlalchemy import text
@@ -122,7 +122,7 @@ class BookingOrchestrator:
         if provider == "AMADEUS":
             return self._book_amadeus(user_profile, offer_id, amount, num_passengers)
         elif provider == "DUFFEL":
-            return self._book_duffel(user_profile, offer_id, amount, seat_service_id, num_passengers)
+            return self._book_duffel(user_profile, offer_id, amount, seat_service_id, num_passengers, companions or [])
         elif provider == "AMADEUS_HOTEL":
             return self._book_hotel(user_profile, offer_id, amount)
         elif provider == "LITEAPI":
@@ -291,15 +291,12 @@ class BookingOrchestrator:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Amadeus Booking Failed: {str(e)}")
 
-    def _book_duffel(self, profile: Profile, offer_id: str, amount: float, seat_service_id: str = None, num_passengers: int = 1):
+    def _book_duffel(self, profile: Profile, offer_id: str, amount: float, seat_service_id: str = None, num_passengers: int = 1, companions: list = None):
         # Extract real ID and Passenger ID (DUFFEL::offer_id::passenger_id)
         parts = offer_id.split("::")
         real_offer_id = parts[1]
-        passenger_id = parts[2] if len(parts) > 2 else None
-        
-        # If passenger_id is missing (legacy or other), we might fail or need to fetch.
-        # But our new search provides it.
-        
+        first_passenger_id = parts[2] if len(parts) > 2 else None
+
         import requests
         token = os.getenv("DUFFEL_ACCESS_TOKEN")
         url = "https://api.duffel.com/air/orders"
@@ -310,51 +307,96 @@ class BookingOrchestrator:
             "Accept-Encoding": "gzip",
             "Duffel-Version": "v2"
         }
-        
-        # Prepare Passengers (multiple if num_passengers > 1)
+
+        # Fetch all passenger IDs from the offer (needed for multi-pax)
+        all_passenger_ids = [first_passenger_id] if first_passenger_id else []
+        if num_passengers > 1:
+            try:
+                offer_pax_resp = requests.get(
+                    f"https://api.duffel.com/air/offers/{real_offer_id}",
+                    headers=headers, timeout=15
+                )
+                if offer_pax_resp.status_code == 200:
+                    offer_pax_data = offer_pax_resp.json()["data"]
+                    all_passenger_ids = [p["id"] for p in offer_pax_data.get("passengers", [])]
+                    print(f"DEBUG: Fetched {len(all_passenger_ids)} passenger IDs from offer")
+            except Exception as pid_err:
+                print(f"DEBUG: Could not fetch passenger IDs: {pid_err}")
+
+        # Fix phone number format for Duffel (requires E.164: +52XXXXXXXXXX)
+        phone = profile.phone_number or "+16505550100"
+        phone = phone.replace("+", "").strip()
+        if phone.startswith("521") and len(phone) == 13:
+            phone = "52" + phone[3:]  # Remove extra "1" from WhatsApp format
+        phone = f"+{phone}"
+
+        companions = companions or []
+
+        # Build passengers list
         passengers_list = []
         for i in range(num_passengers):
-            # Fix phone number format for Duffel (requires E.164: +52XXXXXXXXXX)
-            phone = profile.phone_number or "+16505550100"
-            # Normalize Mexican WhatsApp numbers: 521XXXXXXXXXX → +52XXXXXXXXXX
-            phone = phone.replace("+", "").strip()
-            if phone.startswith("521") and len(phone) == 13:
-                phone = "52" + phone[3:]  # Remove extra "1" from WhatsApp format
-            phone = f"+{phone}"
-            print(f"DEBUG: Duffel phone formatted: {phone}")
-            
-            passenger = {
-                "born_on": profile.dob.isoformat(),
-                "email": profile.email or f"passenger{i+1}@example.com",
-                "family_name": profile.legal_last_name,
-                "given_name": profile.legal_first_name if i == 0 else f"{profile.legal_first_name} {i+1}",
-                "gender": "m" if profile.gender == "M" else "f",
-                "title": "mr" if profile.gender == "M" else "ms",
-                "phone_number": phone,
-                "id": passenger_id or f"pas_000{i}" # Use extracted ID or generate
-            }
+            pax_id = all_passenger_ids[i] if i < len(all_passenger_ids) else f"pas_000{i}"
 
-            # Add identity documents for international flights (passport)
-            if profile.passport_number and profile.passport_expiry and profile.passport_country:
-                passenger["identity_documents"] = [{
-                    "type": "passport",
-                    "unique_identifier": profile.passport_number,
-                    "expires_on": profile.passport_expiry.isoformat(),
-                    "issuing_country_code": profile.passport_country
-                }]
-                print(f"DEBUG: Added passport for {profile.legal_first_name}: {profile.passport_country}")
+            if i == 0:
+                # Primary passenger (registered user)
+                passenger = {
+                    "born_on": profile.dob.isoformat(),
+                    "email": profile.email or "passenger@example.com",
+                    "family_name": profile.legal_last_name,
+                    "given_name": profile.legal_first_name,
+                    "gender": "m" if profile.gender == "M" else "f",
+                    "title": "mr" if profile.gender == "M" else "ms",
+                    "phone_number": phone,
+                    "id": pax_id,
+                }
+                # Add passport
+                if profile.passport_number and profile.passport_expiry and profile.passport_country:
+                    passenger["identity_documents"] = [{
+                        "type": "passport",
+                        "unique_identifier": profile.passport_number,
+                        "expires_on": profile.passport_expiry.isoformat(),
+                        "issuing_country_code": profile.passport_country
+                    }]
+                # Add KTN
+                if profile.known_traveler_number:
+                    if "identity_documents" not in passenger:
+                        passenger["identity_documents"] = []
+                    passenger["identity_documents"].append({
+                        "type": "known_traveler_number",
+                        "unique_identifier": profile.known_traveler_number,
+                        "issuing_country_code": "US"
+                    })
+            else:
+                # Companion passenger (from collected data)
+                comp_idx = i - 1
+                if comp_idx < len(companions):
+                    comp = companions[comp_idx]
+                    comp_gender = comp.get("gender", "M")
+                    passenger = {
+                        "born_on": comp["dob"],
+                        "email": profile.email or "passenger@example.com",
+                        "family_name": comp["family_name"],
+                        "given_name": comp["given_name"],
+                        "gender": "m" if comp_gender == "M" else "f",
+                        "title": "mr" if comp_gender == "M" else "ms",
+                        "phone_number": phone,
+                        "id": pax_id,
+                    }
+                else:
+                    # Fallback: shouldn't happen if companion collection worked
+                    print(f"⚠️ Missing companion data for passenger {i+1}, using placeholder")
+                    passenger = {
+                        "born_on": profile.dob.isoformat(),
+                        "email": profile.email or "passenger@example.com",
+                        "family_name": profile.legal_last_name,
+                        "given_name": f"Pasajero{i+1}",
+                        "gender": "m" if profile.gender == "M" else "f",
+                        "title": "mr" if profile.gender == "M" else "ms",
+                        "phone_number": phone,
+                        "id": pax_id,
+                    }
 
-            # Add Known Traveler Number (Global Entry/TSA PreCheck) if available
-            if profile.known_traveler_number:
-                if "identity_documents" not in passenger:
-                    passenger["identity_documents"] = []
-                passenger["identity_documents"].append({
-                    "type": "known_traveler_number",
-                    "unique_identifier": profile.known_traveler_number,
-                    "issuing_country_code": "US"
-                })
-                print(f"DEBUG: Added KTN: {profile.known_traveler_number}")
-
+            print(f"DEBUG: Passenger {i+1}: {passenger['given_name']} {passenger['family_name']} (id={pax_id})")
             passengers_list.append(passenger)
         
         # Add loyalty program matching the flight's airline
