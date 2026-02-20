@@ -932,48 +932,100 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     new_order_id = change_data.get("order_id", "")
 
                     # Step 3: Confirm the change with payment (REQUIRED)
+                    # First, fetch the actual change amount from Duffel to avoid payment mismatch
                     confirm_url = f"https://api.duffel.com/air/order_changes/{change_id}/actions/confirm"
                     payment_amount = selected_offer.get("change_amount", "0")
-                    confirm_payload = {
-                        "data": {
-                            "payment": {
-                                "amount": str(payment_amount),
-                                "currency": selected_offer.get("currency", "USD"),
-                                "type": "balance"
-                            }
+                    payment_currency = selected_offer.get("currency", "USD")
+
+                    # Only include payment if there's an actual charge (change_total_amount > 0)
+                    confirm_payload = {"data": {}}
+                    if float(payment_amount) > 0:
+                        confirm_payload["data"]["payment"] = {
+                            "amount": str(payment_amount),
+                            "currency": payment_currency,
+                            "type": "balance"
                         }
-                    }
+
+                    print(f"DEBUG: Confirming change {change_id} with payment: {payment_amount} {payment_currency}")
                     confirm_resp = _requests.post(confirm_url, json=confirm_payload, headers=duffel_headers)
                     if confirm_resp.status_code != 200:
-                        error_text = confirm_resp.text[:200]
-                        send_whatsapp_message(from_number, f"❌ Error al confirmar cambio con pago: {error_text}")
+                        error_text = confirm_resp.text[:300]
+                        print(f"❌ Change confirm failed: {error_text}")
+                        send_whatsapp_message(from_number, f"❌ Error al confirmar cambio: {error_text[:200]}")
+                        # Clean up on failure so user isn't stuck
+                        session.pop("pending_change", None)
+                        session.pop("pending_change_offers", None)
+                        session_manager.save_session(from_number, session)
                         return {"status": "ok"}
+
+                    # Extract new flight info from the confirmed change response
+                    confirmed_data = confirm_resp.json().get("data", {})
+                    confirmed_new_total = confirmed_data.get("new_total_amount", selected_offer.get("new_total", "0"))
+                    confirmed_currency = confirmed_data.get("new_total_currency", payment_currency)
+                    confirmed_penalty = confirmed_data.get("penalty_total_amount", "0")
+                    confirmed_change_amt = confirmed_data.get("change_total_amount", payment_amount)
+
+                    # Extract new departure date from confirmed slices
+                    new_departure_date = None
+                    confirmed_slices = confirmed_data.get("slices", {})
+                    added_slices = confirmed_slices.get("add", []) if isinstance(confirmed_slices, dict) else []
+                    for aslice in added_slices:
+                        segs = aslice.get("segments", [])
+                        if segs:
+                            dep_at = segs[0].get("departing_at", "")
+                            if dep_at:
+                                new_departure_date = dep_at[:10]
+                                break
 
                     # Update DB via raw SQL
                     from sqlalchemy import text as _text
                     pnr = session.get("pending_change", {}).get("pnr")
+                    user_id = session.get("user_id", "")
                     if pnr:
-                        with engine.connect() as conn:
-                            conn.execute(
-                                _text("""UPDATE trips SET
-                                    previous_order_id = duffel_order_id,
-                                    duffel_order_id = :new_oid,
-                                    change_penalty_amount = :penalty,
-                                    total_amount = :new_total
-                                    WHERE booking_reference = :pnr"""),
-                                {
-                                    "new_oid": new_order_id,
-                                    "penalty": float(selected_offer.get("change_amount", 0)),
-                                    "new_total": float(selected_offer.get("new_total", 0)),
-                                    "pnr": pnr
+                        try:
+                            with engine.connect() as conn:
+                                # Use a safe UPDATE that only touches columns that definitely exist
+                                update_params = {
+                                    "new_total": float(confirmed_new_total) if confirmed_new_total else 0,
+                                    "pnr": pnr,
+                                    "uid": user_id
                                 }
-                            )
-                            conn.commit()
+                                update_sql = "UPDATE trips SET total_amount = :new_total"
+
+                                # Update departure_date if we have the new date
+                                if new_departure_date:
+                                    update_sql += ", departure_date = :new_dep_date"
+                                    update_params["new_dep_date"] = new_departure_date
+
+                                # Try to update change-specific columns (may not exist in older DBs)
+                                try:
+                                    update_sql_full = update_sql + ", previous_order_id = duffel_order_id, change_penalty_amount = :penalty WHERE booking_reference = :pnr AND user_id = :uid"
+                                    update_params["penalty"] = float(confirmed_penalty) if confirmed_penalty else 0
+                                    conn.execute(_text(update_sql_full), update_params)
+                                except Exception as col_err:
+                                    print(f"⚠️ Change columns not available, using basic update: {col_err}")
+                                    conn.rollback()
+                                    update_sql += " WHERE booking_reference = :pnr AND user_id = :uid"
+                                    conn.execute(_text(update_sql), update_params)
+
+                                conn.commit()
+                                print(f"✅ Trip {pnr} updated after change: total={confirmed_new_total}, date={new_departure_date}")
+                        except Exception as db_err:
+                            print(f"⚠️ DB update after change failed: {db_err}")
 
                     response_text = f"✅ *¡Vuelo cambiado exitosamente!*\n\n"
-                    response_text += f"PNR: {pnr}\n"
-                    response_text += f"Diferencia cobrada: ${selected_offer['change_amount']} {selected_offer['currency']}\n"
-                    response_text += f"Nuevo total: ${selected_offer['new_total']} {selected_offer['currency']}"
+                    response_text += f"📝 *PNR:* {pnr}\n"
+                    if float(confirmed_change_amt) > 0:
+                        response_text += f"💳 *Diferencia cobrada:* ${confirmed_change_amt} {confirmed_currency}\n"
+                    elif float(confirmed_change_amt) < 0:
+                        response_text += f"💰 *Reembolso:* ${abs(float(confirmed_change_amt))} {confirmed_currency}\n"
+                    else:
+                        response_text += f"✨ *Sin costo adicional*\n"
+                    if float(confirmed_penalty) > 0:
+                        response_text += f"⚠️ *Penalidad:* ${confirmed_penalty} {confirmed_currency}\n"
+                    response_text += f"💰 *Nuevo total:* ${confirmed_new_total} {confirmed_currency}"
+                    if new_departure_date:
+                        response_text += f"\n📅 *Nueva fecha:* {new_departure_date}"
 
                     # Clean up session
                     session.pop("pending_change", None)
@@ -984,9 +1036,17 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 else:
                     error_text = resp.text[:200]
                     send_whatsapp_message(from_number, f"❌ Error al confirmar cambio: {error_text}")
+                    # Clean up on failure
+                    session.pop("pending_change", None)
+                    session.pop("pending_change_offers", None)
+                    session_manager.save_session(from_number, session)
 
             except Exception as e:
                 print(f"❌ Change confirmation error: {e}")
+                # Clean up on any error
+                session.pop("pending_change", None)
+                session.pop("pending_change_offers", None)
+                session_manager.save_session(from_number, session)
                 send_whatsapp_message(from_number, f"❌ Error: {str(e)}")
 
             return {"status": "ok"}

@@ -230,17 +230,41 @@ class OrderChangeService:
             from sqlalchemy import text as _text
             try:
                 new_order_id = confirmed_change.get("order_id")
-                penalty = float(offer.get("penalty_total_amount", 0))
-                new_total = float(offer.get("new_total_amount", 0))
+                confirmed_new_total = float(confirmed_change.get("new_total_amount", 0) or offer.get("new_total_amount", 0))
+                confirmed_penalty = float(confirmed_change.get("penalty_total_amount", 0) or offer.get("penalty_total_amount", 0))
+
+                # Extract new departure date from confirmed slices
+                new_dep_date = None
+                confirmed_slices = confirmed_change.get("slices", {})
+                added_slices = confirmed_slices.get("add", []) if isinstance(confirmed_slices, dict) else []
+                for aslice in added_slices:
+                    segs = aslice.get("segments", [])
+                    if segs:
+                        dep_at = segs[0].get("departing_at", "")
+                        if dep_at:
+                            new_dep_date = dep_at[:10]
+                            break
+
                 with _engine.connect() as _conn:
-                    _conn.execute(
-                        _text("""UPDATE trips SET previous_order_id = duffel_order_id,
-                                 duffel_order_id = :new_oid,
-                                 change_penalty_amount = :penalty,
-                                 total_amount = :new_total
-                                 WHERE user_id = :uid AND change_request_id IS NOT NULL"""),
-                        {"new_oid": new_order_id, "penalty": penalty, "new_total": new_total, "uid": user_id}
-                    )
+                    update_params = {
+                        "new_total": confirmed_new_total,
+                        "uid": user_id
+                    }
+                    update_sql = "UPDATE trips SET total_amount = :new_total"
+                    if new_dep_date:
+                        update_sql += ", departure_date = :new_dep_date"
+                        update_params["new_dep_date"] = new_dep_date
+
+                    try:
+                        update_sql_full = update_sql + ", previous_order_id = duffel_order_id, change_penalty_amount = :penalty WHERE user_id = :uid AND duffel_order_id = :oid"
+                        update_params["penalty"] = confirmed_penalty
+                        update_params["oid"] = order_id
+                        _conn.execute(_text(update_sql_full), update_params)
+                    except Exception:
+                        _conn.rollback()
+                        update_sql += " WHERE user_id = :uid AND duffel_order_id = :oid"
+                        update_params["oid"] = order_id
+                        _conn.execute(_text(update_sql), update_params)
                     _conn.commit()
             except Exception as db_err:
                 print(f"⚠️ DB update after change failed: {db_err}")

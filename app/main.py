@@ -108,6 +108,15 @@ def run_migrations():
             if not column_exists(conn, 'trips', 'duffel_order_id'):
                 conn.execute(text("ALTER TABLE trips ADD COLUMN duffel_order_id VARCHAR"))
                 conn.commit()
+            if not column_exists(conn, 'trips', 'previous_order_id'):
+                conn.execute(text("ALTER TABLE trips ADD COLUMN previous_order_id VARCHAR"))
+                conn.commit()
+            if not column_exists(conn, 'trips', 'change_penalty_amount'):
+                conn.execute(text("ALTER TABLE trips ADD COLUMN change_penalty_amount NUMERIC(10,2)"))
+                conn.commit()
+            if not column_exists(conn, 'trips', 'eticket_number'):
+                conn.execute(text("ALTER TABLE trips ADD COLUMN eticket_number VARCHAR"))
+                conn.commit()
 
             # Add column to notifications table
             if not column_exists(conn, 'notifications', 'extra_data'):
