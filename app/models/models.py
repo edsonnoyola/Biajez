@@ -18,6 +18,7 @@ class FlightSegment(BaseModel):
     departure_time: datetime
     arrival_time: datetime
     duration: str
+    slice_index: int = 0  # Which leg: 0=outbound, 1=return
 
 class AntigravityFlight(BaseModel):
     offer_id: str

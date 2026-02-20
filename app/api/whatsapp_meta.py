@@ -293,6 +293,20 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         # Get or create session with Redis
         session = session_manager.get_session(from_number)
 
+        # Expire stale flight data (Duffel offers expire ~30 min)
+        flights_ts = session.get("flights_timestamp")
+        if flights_ts and (session.get("pending_flights") or session.get("selected_flight")):
+            try:
+                age_minutes = (datetime.now() - datetime.fromisoformat(flights_ts)).total_seconds() / 60
+                if age_minutes > 30:
+                    session.pop("pending_flights", None)
+                    session.pop("selected_flight", None)
+                    session.pop("flights_timestamp", None)
+                    session_manager.save_session(from_number, session)
+                    print(f"🧹 Expired stale flight data for {from_number} ({age_minutes:.0f}m old)")
+            except Exception:
+                pass  # If timestamp is malformed, just continue
+
         # DEBUG: Log session state
         print(f"🔍 SESSION for {from_number}: user_id={session.get('user_id')}, flights={len(session.get('pending_flights', []))}, selected={bool(session.get('selected_flight'))}, msg={incoming_msg[:30] if incoming_msg else 'None'}")
 
@@ -1236,6 +1250,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                 session["selected_flight"] = selected
 
                 price = selected.get("price", "N/A")
+                currency = selected.get("currency", "USD")
                 segments = selected.get("segments", [])
                 duration = selected.get("duration_total", "")
 
@@ -1244,23 +1259,24 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                 if segments:
                     airline = segments[0].get("carrier_code", "N/A")
 
-                # Determine flight type
+                # Determine flight type using slice_index (0=outbound, 1=return)
                 num_segments = len(segments)
-                origin = segments[0].get("departure_iata", "") if segments else ""
-                final_dest = segments[-1].get("arrival_iata", "") if segments else ""
+                num_slices = max((seg.get("slice_index", 0) for seg in segments), default=0) + 1 if segments else 1
                 is_direct = num_segments == 1
-                is_round_trip = (origin == final_dest) and num_segments > 1
+                is_round_trip = num_slices == 2
 
                 if is_direct:
                     flight_type = "✈️ Vuelo Directo"
                 elif is_round_trip:
                     flight_type = "🔄 Ida y Vuelta"
+                elif num_slices > 2:
+                    flight_type = f"🌍 Multidestino ({num_slices} tramos)"
                 else:
-                    flight_type = f"🌍 Multidestino ({num_segments} tramos)"
+                    flight_type = f"✈️ Con escala ({num_segments} segmentos)"
 
                 response_text = f"📋 *Confirmar reserva*\n\n"
                 response_text += f"✈️ Aerolínea: {airline}\n"
-                response_text += f"💰 Precio: ${price} USD\n"
+                response_text += f"💰 Precio: ${price} {currency}\n"
                 response_text += f"📊 Tipo: {flight_type}\n"
                 response_text += "\n"
 
@@ -1299,11 +1315,19 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                             # Format: 2026-02-10 06:58 -> 10/02 06:58
                             arr_str = f"{arr_str_raw[8:10]}/{arr_str_raw[5:7]} {arr_str_raw[11:16]}" if len(arr_str_raw) >= 16 else f"{arr_str_raw[8:10]}/{arr_str_raw[5:7]}"
 
-                    # Label based on flight type
+                    # Label based on flight type and slice
+                    seg_slice = seg.get("slice_index", 0)
                     if is_direct:
                         label = "Vuelo"
                     elif is_round_trip:
-                        label = "Ida" if idx == 1 else "Regreso"
+                        slice_label = "Ida" if seg_slice == 0 else "Regreso"
+                        # Count segments in this slice for connection labeling
+                        segs_in_slice = [s for s in segments if s.get("slice_index", 0) == seg_slice]
+                        if len(segs_in_slice) > 1:
+                            pos = segs_in_slice.index(seg) + 1
+                            label = f"{slice_label} ({pos}/{len(segs_in_slice)})"
+                        else:
+                            label = slice_label
                     else:
                         label = f"Tramo {idx}"
 
@@ -1819,7 +1843,8 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                 response_text += f"✈️ *Aerolínea:* {airline}\n"
                 response_text += f"🛫 *Ruta:* {dep_city} → {arr_city}\n"
                 response_text += f"📅 *Fecha:* {dep_date}\n"
-                response_text += f"💰 *Total:* ${amount} USD\n"
+                booking_currency = flight_dict.get("currency", "USD")
+                response_text += f"💰 *Total:* ${amount} {booking_currency}\n"
                 # Show change policy from selected flight metadata
                 flight_metadata = flight_dict.get("metadata") or {}
                 if flight_metadata.get("changeable"):
@@ -1853,6 +1878,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
 
                 session["selected_flight"] = None
                 session["pending_flights"] = []
+                session.pop("flights_timestamp", None)
                 # Clear any stale post-booking states
                 session.pop("pending_seat_selection", None)
                 session.pop("pending_baggage", None)
@@ -3375,6 +3401,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
 
                     if tool_result:
                         session["pending_flights"] = tool_result[:5]
+                        session["flights_timestamp"] = datetime.now().isoformat()
                         # Clear any leftover change state from previous flow
                         session.pop("pending_change", None)
                         session.pop("pending_change_offers", None)
@@ -3436,6 +3463,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
 
                     if tool_result:
                         session["pending_flights"] = tool_result[:5]
+                        session["flights_timestamp"] = datetime.now().isoformat()
                         # Clear any leftover change state from previous flow
                         session.pop("pending_change", None)
                         session.pop("pending_change_offers", None)
@@ -3658,6 +3686,7 @@ def format_for_whatsapp(text: str, session: dict) -> str:
 
         for i, flight in enumerate(flights, 1):
             price = flight.get("price", "N/A")
+            currency = flight.get("currency", "USD")
             segments = flight.get("segments", [])
             duration = flight.get("duration_total", "")
             cabin = flight.get("cabin_class", "ECONOMY")
@@ -3680,7 +3709,7 @@ def format_for_whatsapp(text: str, session: dict) -> str:
                 refund_tag = "✅ Reembolsable" if refundable else ""
                 tags = " ".join(t for t in [change_tag, refund_tag] if t)
                 flight_list += f"━━━━━━━━━━━━━━━━━━━━\n"
-                flight_list += f"*{i}. ${price} USD* {tags}\n"
+                flight_list += f"*{i}. ${price} {currency}* {tags}\n"
 
                 # Show each segment with full details
                 for seg_idx, seg in enumerate(segments):
@@ -3713,20 +3742,25 @@ def format_for_whatsapp(text: str, session: dict) -> str:
                     if seg_flight_num:
                         flight_id += f" {seg_flight_num}"
 
-                    # Detect if round trip (origin == final destination) or multidestino
-                    is_round_trip = (origin == final_dest) and num_segments >= 2
+                    # Detect round trip via slice_index
+                    num_slices = max((s.get("slice_index", 0) for s in segments), default=0) + 1
+                    is_round_trip = num_slices == 2
+                    seg_slice = seg.get("slice_index", 0)
+                    segs_in_slice = [s for s in segments if s.get("slice_index", 0) == seg_slice]
+                    has_connection = len(segs_in_slice) > 1
+                    conn_pos = segs_in_slice.index(seg) + 1 if has_connection else 0
+                    conn_label = f" ({conn_pos}/{len(segs_in_slice)})" if has_connection else " (Directo)"
 
-                    # Segment label with direct/stops indicator
-                    # Each segment is a direct flight leg
+                    # Segment label
                     if num_segments == 1:
                         seg_label = "✈️ DIRECTO"
                         flight_list += f"\n   {seg_label}: {seg_origin}→{seg_dest}\n"
-                    elif is_round_trip and seg_idx == 0:
+                    elif is_round_trip and seg_slice == 0:
                         seg_label = "🛫 IDA"
-                        flight_list += f"\n   {seg_label}: {seg_origin}→{seg_dest} (Directo)\n"
-                    elif is_round_trip and seg_idx == 1:
+                        flight_list += f"\n   {seg_label}: {seg_origin}→{seg_dest}{conn_label}\n"
+                    elif is_round_trip and seg_slice == 1:
                         seg_label = "🛬 VUELTA"
-                        flight_list += f"\n   {seg_label}: {seg_origin}→{seg_dest} (Directo)\n"
+                        flight_list += f"\n   {seg_label}: {seg_origin}→{seg_dest}{conn_label}\n"
                     else:
                         seg_label = f"✈️ Tramo {seg_idx + 1}"
                         flight_list += f"\n   {seg_label}: {seg_origin}→{seg_dest} (Directo)\n"

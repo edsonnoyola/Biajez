@@ -289,7 +289,7 @@ class FlightAggregator:
             for offer in response.data:
                 # Basic mapping
                 segments = []
-                for itin in offer['itineraries']:
+                for itin_idx, itin in enumerate(offer['itineraries']):
                     for seg in itin['segments']:
                         segments.append(FlightSegment(
                             carrier_code=seg['carrierCode'],
@@ -298,7 +298,8 @@ class FlightAggregator:
                             arrival_iata=seg['arrival']['iataCode'],
                             departure_time=datetime.fromisoformat(seg['departure']['at']),
                             arrival_time=datetime.fromisoformat(seg['arrival']['at']),
-                            duration=seg['duration']
+                            duration=seg['duration'],
+                            slice_index=itin_idx,
                         ))
                 
                 flights.append(AntigravityFlight(
@@ -449,7 +450,7 @@ class FlightAggregator:
                 # This ensures we always return results even if preferred airline isn't available
                     
                 segments = []
-                for slice in offer['slices']:
+                for slice_idx, slice in enumerate(offer['slices']):
                     for seg in slice['segments']:
                         segments.append(FlightSegment(
                             carrier_code=seg['operating_carrier']['iata_code'],
@@ -458,7 +459,8 @@ class FlightAggregator:
                             arrival_iata=seg['destination']['iata_code'],
                             departure_time=datetime.fromisoformat(seg['departing_at']),
                             arrival_time=datetime.fromisoformat(seg['arriving_at']),
-                            duration=seg['duration'] or "00:00"
+                            duration=seg['duration'] or "00:00",
+                            slice_index=slice_idx,
                         ))
                 
                 # Store passenger ID in offer_id for booking retrieval if needed
