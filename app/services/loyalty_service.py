@@ -33,6 +33,8 @@ class LoyaltyService:
         self.headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
             "Duffel-Version": "v2"
         }
 
@@ -126,23 +128,79 @@ class LoyaltyService:
 
         return {"success": False, "error": "Programa no encontrado"}
 
-    async def apply_loyalty_to_booking(self, order_id: str, loyalty_number: str, airline_code: str) -> Dict:
-        """Apply loyalty number to an existing Duffel order"""
+    async def update_offer_with_loyalty(self, offer_id: str, passenger_id: str, user_id: str) -> Dict:
+        """
+        Per Duffel docs: PATCH /air/offers/{offer_id}/passengers/{passenger_id}
+        Updates an offer's passenger with loyalty_programme_accounts before booking.
+        This is Flow 2 from docs - apply loyalty after search but before booking.
+        """
         try:
-            # Duffel doesn't support adding loyalty after booking
-            # This would need to be added during the booking process
-            # For now, return info about this limitation
-            return {
-                "success": False,
-                "message": "Los números de viajero frecuente deben agregarse antes de reservar. Tu número está guardado para futuras reservas."
+            import httpx
+
+            # Get user's loyalty programs
+            programs = self.db.query(LoyaltyProgram).filter(
+                LoyaltyProgram.user_id == user_id
+            ).all()
+
+            if not programs:
+                return {"success": False, "message": "No tienes programas de viajero frecuente registrados."}
+
+            # Get user profile for name (required by Duffel)
+            from app.models.models import Profile
+            profile = self.db.query(Profile).filter(Profile.user_id == user_id).first()
+            if not profile:
+                return {"success": False, "error": "Perfil no encontrado"}
+
+            # Build loyalty accounts list
+            loyalty_accounts = [{
+                "airline_iata_code": p.airline_code,
+                "account_number": p.program_number
+            } for p in programs]
+
+            url = f"{self.base_url}/air/offers/{offer_id}/passengers/{passenger_id}"
+            payload = {
+                "data": {
+                    "given_name": profile.legal_first_name,
+                    "family_name": profile.legal_last_name,
+                    "loyalty_programme_accounts": loyalty_accounts
+                }
             }
+
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.patch(url, headers=self.headers, json=payload)
+
+                if response.status_code == 200:
+                    print(f"✈️ Updated offer {offer_id} passenger with {len(loyalty_accounts)} loyalty programs")
+                    return {
+                        "success": True,
+                        "message": f"Millas aplicadas al vuelo ({len(loyalty_accounts)} programas)",
+                        "programs_applied": [p.airline_code for p in programs]
+                    }
+                else:
+                    error_data = response.json()
+                    errors = error_data.get("errors", [{}])
+                    error_msg = errors[0].get("message", "Error al aplicar millas") if errors else "Error desconocido"
+                    print(f"❌ Loyalty PATCH failed: {error_msg}")
+                    return {"success": False, "error": error_msg}
+
         except Exception as e:
+            print(f"Error updating offer with loyalty: {e}")
             return {"success": False, "error": str(e)}
+
+    async def apply_loyalty_to_booking(self, order_id: str, loyalty_number: str, airline_code: str) -> Dict:
+        """
+        Loyalty cannot be added after booking per Duffel.
+        It's automatically included at search time and booking time.
+        """
+        return {
+            "success": False,
+            "message": "Tus millas se aplican automaticamente al buscar y reservar. Ya estan guardadas para futuras reservas."
+        }
 
     def format_for_whatsapp(self, programs: List[Dict]) -> str:
         """Format loyalty programs for WhatsApp"""
         if not programs:
-            return "*Mis programas de viajero frecuente*\n\nNo tienes programas registrados.\n\nPara agregar: 'agregar millas AM 123456789'"
+            return "*Mis programas de viajero frecuente*\n\nNo tienes programas registrados.\n\nPara agregar: 'agregar millas AM 123456789'\n\n_Al agregar tus millas, se aplican automaticamente al buscar vuelos para obtener mejores precios._"
 
         msg = "*Mis programas de viajero frecuente*\n\n"
 
@@ -152,6 +210,7 @@ class LoyaltyService:
             msg += f"   {p['program_name']}{tier_str}\n"
             msg += f"   Número: {p['member_number']}\n\n"
 
+        msg += "✅ _Se aplican automaticamente al buscar y reservar._\n\n"
         msg += "_Para agregar: 'agregar millas [aerolínea] [número]'_\n"
         msg += "_Para eliminar: 'eliminar millas [aerolínea]'_"
 

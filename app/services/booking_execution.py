@@ -357,31 +357,50 @@ class BookingOrchestrator:
 
             passengers_list.append(passenger)
         
-        # NEW: Add loyalty program if user has one for this airline
-        # Extract airline code from offer (we need to get it from segments)
-        # For now, we'll fetch the offer to get airline info
+        # Add loyalty program matching the flight's airline
+        # Per Duffel docs: loyalty_programme_accounts on the passenger at booking time
         try:
-            # Get airline code from offer ID or cached data
-            from app.services.flight_engine import load_cache
-            OFFER_CACHE = load_cache()
-            full_offer_id = f"DUFFEL::{real_offer_id}::{passenger_id}"
-            
-            # Try to get airline from loyalty programs
             loyalty_programs = self.db.query(LoyaltyProgram).filter(
                 LoyaltyProgram.user_id == profile.user_id
             ).all()
-            
+
             if loyalty_programs:
                 print(f"DEBUG: User has {len(loyalty_programs)} loyalty programs")
-                # For demo, we'll add the first matching one
-                # In production, match by airline code from flight
-                for lp in loyalty_programs:
-                    passenger["loyalty_programme_accounts"] = [{
-                        "airline_iata_code": lp.airline_code,
-                        "account_number": lp.program_number
-                    }]
-                    print(f"DEBUG: Added loyalty program {lp.airline_code} - {lp.program_number}")
-                    break  # Add first one
+                # Get airline code from the offer to match correctly
+                flight_airline_code = None
+                try:
+                    offer_check = requests.get(
+                        f"https://api.duffel.com/air/offers/{real_offer_id}",
+                        headers=headers
+                    )
+                    if offer_check.status_code == 200:
+                        offer_info = offer_check.json()["data"]
+                        # Get operating carrier from first segment
+                        slices = offer_info.get("slices", [])
+                        if slices:
+                            segs = slices[0].get("segments", [])
+                            if segs:
+                                flight_airline_code = segs[0].get("operating_carrier", {}).get("iata_code")
+                                print(f"DEBUG: Flight airline code: {flight_airline_code}")
+                except Exception as offer_err:
+                    print(f"DEBUG: Could not fetch offer for airline match: {offer_err}")
+
+                # Match loyalty program to flight airline, fallback to first program
+                matched_lp = None
+                if flight_airline_code:
+                    matched_lp = next((lp for lp in loyalty_programs if lp.airline_code == flight_airline_code), None)
+
+                if not matched_lp:
+                    # Fallback: use first program (user might have partner airline miles)
+                    matched_lp = loyalty_programs[0]
+                    print(f"DEBUG: No exact airline match, using first loyalty: {matched_lp.airline_code}")
+
+                # Add to first passenger only
+                passengers_list[0]["loyalty_programme_accounts"] = [{
+                    "airline_iata_code": matched_lp.airline_code,
+                    "account_number": matched_lp.program_number
+                }]
+                print(f"✈️ Added loyalty {matched_lp.airline_code} - {matched_lp.program_number} to booking")
         except Exception as lp_error:
             print(f"DEBUG: Could not add loyalty program: {lp_error}")
         

@@ -55,15 +55,16 @@ class FlightAggregator:
         self.duffel = Duffel(access_token=duffel_token, api_version="v2")
 
     async def search_hybrid_flights(
-        self, 
-        origin: str, 
-        destination: str, 
-        departure_date: str, 
+        self,
+        origin: str,
+        destination: str,
+        departure_date: str,
         return_date: Optional[str] = None,
         cabin_class: str = "ECONOMY",
         airline: Optional[str] = None,
         time_of_day: str = "ANY",
-        num_passengers: int = 1
+        num_passengers: int = 1,
+        user_id: Optional[str] = None
     ) -> List[AntigravityFlight]:
         """
         Parallel execution of Amadeus and Duffel searches with intelligent scoring.
@@ -80,7 +81,8 @@ class FlightAggregator:
             airline_filter=airline,
             return_date=return_date,
             num_passengers=num_passengers,
-            time_of_day=time_of_day
+            time_of_day=time_of_day,
+            user_id=user_id
         ))
         travelpayouts_task = asyncio.create_task(self._search_travelpayouts(origin, destination, departure_date, cabin_class, return_date))
         
@@ -305,7 +307,7 @@ class FlightAggregator:
             print(f"Amadeus Unexpected Error: {e}")
             return []
 
-    async def _search_duffel(self, origin, dest, date, cabin, airline_filter=None, return_date=None, custom_slices=None, num_passengers=1, time_of_day="ANY"):
+    async def _search_duffel(self, origin, dest, date, cabin, airline_filter=None, return_date=None, custom_slices=None, num_passengers=1, time_of_day="ANY", user_id=None):
         try:
             import requests
             token = os.getenv("DUFFEL_ACCESS_TOKEN")
@@ -342,7 +344,51 @@ class FlightAggregator:
                     slices[0]["departure_time"] = dep_time
 
             # Generate passengers list dynamically based on num_passengers
-            passengers_list = [{"type": "adult"} for _ in range(num_passengers)]
+            # Per Duffel docs: include loyalty_programme_accounts + given_name/family_name
+            # at search time for potentially discounted fares
+            passengers_list = []
+            loyalty_accounts = []
+            user_names = {}
+
+            if user_id:
+                try:
+                    from app.db.database import engine as db_engine
+                    from sqlalchemy import text
+                    with db_engine.connect() as conn:
+                        # Get user profile for name (required by Duffel when sending loyalty)
+                        profile_row = conn.execute(
+                            text("SELECT legal_first_name, legal_last_name FROM profiles WHERE user_id = :uid"),
+                            {"uid": user_id}
+                        ).fetchone()
+                        if profile_row:
+                            user_names = {
+                                "given_name": profile_row[0],
+                                "family_name": profile_row[1]
+                            }
+
+                        # Get all loyalty programs for this user
+                        lp_rows = conn.execute(
+                            text("SELECT airline_code, program_number FROM loyalty_programs WHERE user_id = :uid"),
+                            {"uid": user_id}
+                        ).fetchall()
+                        for row in lp_rows:
+                            loyalty_accounts.append({
+                                "airline_iata_code": row[0],
+                                "account_number": row[1]
+                            })
+                        if loyalty_accounts:
+                            print(f"✈️ Search with {len(loyalty_accounts)} loyalty programs for user {user_id}")
+                except Exception as lp_err:
+                    print(f"DEBUG: Could not load loyalty for search: {lp_err}")
+
+            for i in range(num_passengers):
+                pax = {"type": "adult"}
+                # Only add loyalty + names to first passenger (the registered user)
+                if i == 0 and loyalty_accounts and user_names:
+                    pax["given_name"] = user_names["given_name"]
+                    pax["family_name"] = user_names["family_name"]
+                    pax["loyalty_programme_accounts"] = loyalty_accounts
+                passengers_list.append(pax)
 
             payload = {
                 "data": {

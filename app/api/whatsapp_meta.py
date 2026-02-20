@@ -2500,7 +2500,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
                 result = loyalty_service.add_loyalty_number(user_id, airline_code, member_number)
                 if result.get("success"):
-                    response = f"✅ {result['message']}\n\nPrograma: {result['program']}\nNúmero: {result['number']}"
+                    response = f"✅ {result['message']}\n\nPrograma: {result['program']}\nNúmero: {result['number']}\n\n_Se aplicara automaticamente al buscar y reservar vuelos._"
                 else:
                     response = f"❌ Error: {result.get('error')}"
             else:
@@ -3115,7 +3115,8 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                         cabin_filter,
                         airline_filter,
                         time_filter,
-                        arguments.get("passengers", 1)  # num_passengers
+                        arguments.get("passengers", 1),  # num_passengers
+                        user_id=session.get("user_id")  # Pass user_id for loyalty programme in search
                     )
                     tool_result = [f.dict() for f in tool_result]
 
