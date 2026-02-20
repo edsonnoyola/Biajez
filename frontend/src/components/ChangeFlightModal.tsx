@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Plane, Calendar, MapPin, AlertCircle, ArrowRight } from 'lucide-react';
 import axios from 'axios';
+import API_URL from '../config/api';
 
 interface ChangeFlightModalProps {
     isOpen: boolean;
@@ -65,25 +66,26 @@ export const ChangeFlightModal: React.FC<ChangeFlightModalProps> = ({
 
         try {
             // First, get the current order details to find slice IDs
-            const orderDetails = await axios.get(`http://localhost:8000/v1/orders/detail/${orderId}`);
+            const orderDetails = await axios.get(`${API_URL}/v1/orders/detail/${orderId}`);
             const sliceId = orderDetails.data.slices?.[0]?.id;
 
             if (!sliceId) {
                 throw new Error("Could not find slice ID from order");
             }
 
-            // Create change request
-            const response = await axios.post('http://localhost:8000/v1/orders/change-request', null, {
+            // Create change request - send body as JSON, order_id and user_id as query params
+            const response = await axios.post(`${API_URL}/v1/orders/change-request`, {
+                slices_to_remove: [{ slice_id: sliceId }],
+                slices_to_add: [{
+                    origin: newOrigin,
+                    destination: newDestination,
+                    departure_date: newDate,
+                    cabin_class: cabinClass
+                }]
+            }, {
                 params: {
                     order_id: orderId,
-                    user_id: userId,
-                    slices_to_remove: JSON.stringify([{ slice_id: sliceId }]),
-                    slices_to_add: JSON.stringify([{
-                        origin: newOrigin,
-                        destination: newDestination,
-                        departure_date: newDate,
-                        cabin_class: cabinClass
-                    }])
+                    user_id: userId
                 }
             });
 
@@ -109,7 +111,7 @@ export const ChangeFlightModal: React.FC<ChangeFlightModalProps> = ({
         setError(null);
 
         try {
-            await axios.post(`http://localhost:8000/v1/orders/change-confirm/${selectedOffer.id}`, null, {
+            await axios.post(`${API_URL}/v1/orders/change-confirm/${selectedOffer.id}`, null, {
                 params: {
                     user_id: userId,
                     payment_amount: parseFloat(selectedOffer.change_total_amount)
