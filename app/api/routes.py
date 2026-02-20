@@ -5,7 +5,7 @@ from app.services.flight_engine import FlightAggregator
 from app.services.booking_execution import BookingOrchestrator
 from app.services.hotel_engine import HotelEngine
 from app.ai.agent import AntigravityAgent
-from app.models.models import Profile, LoyaltyProgram, Trip, TripStatusEnum, Payment, PaymentStatusEnum
+from app.models.models import Profile, LoyaltyProgram, Trip, TripStatusEnum, ProviderSourceEnum, Payment, PaymentStatusEnum
 import json
 from datetime import datetime
 
@@ -179,20 +179,37 @@ async def chat(request: Request, db: Session = Depends(get_db)):
                     tool_result = [f.dict() for f in tool_result]
                     
                 elif function_name == "book_flight_final":
-                    # We need provider and amount. 
-                    # In a real flow, the agent should have this context or we extract it from the offer_id if encoded.
-                    # Our offer_id is "PROVIDER::ID".
                     offer_id = arguments["offer_id"]
                     provider = offer_id.split("::")[0]
-                    # We need amount. For now, we fetch it or assume it's passed. 
-                    # Limitation: The tool definition didn't ask for amount. 
-                    # We'll assume we can look it up or it's in the context.
-                    # For this exercise, we'll mock the amount lookup or pass a dummy.
-                    amount = 100.00 # Placeholder
-                    
-                    orchestrator = BookingOrchestrator(db)
-                    booking_result = orchestrator.execute_booking(user_id, offer_id, provider, amount)
-                    tool_result = booking_result # Contains pnr, ticket_number, ticket_url
+                    amount = float(arguments.get("amount", 0))
+                    currency = arguments.get("currency", "USD")
+
+                    if amount <= 0:
+                        tool_result = {
+                            "error": "No se pudo determinar el precio del vuelo. Por favor indica el monto exacto que aparece en los resultados."
+                        }
+                    else:
+                        try:
+                            orchestrator = BookingOrchestrator(db)
+                            booking_result = orchestrator.execute_booking(user_id, offer_id, provider, amount)
+                            pnr = booking_result.get("pnr", "N/A")
+                            duffel_order_id = booking_result.get("duffel_order_id", "")
+                            eticket = booking_result.get("eticket_number", "")
+                            ticket_url = booking_result.get("ticket_url", "")
+                            total_amount = booking_result.get("total_amount", str(amount))
+                            total_currency = booking_result.get("currency", currency)
+                            tool_result = {
+                                "success": True,
+                                "pnr": pnr,
+                                "duffel_order_id": duffel_order_id,
+                                "eticket_number": eticket,
+                                "ticket_url": ticket_url,
+                                "total_amount": total_amount,
+                                "total_currency": total_currency,
+                                "message": f"Reserva confirmada. PNR: {pnr}. Total: ${total_amount} {total_currency}."
+                            }
+                        except Exception as booking_error:
+                            tool_result = {"error": f"Error al reservar: {str(booking_error)}"}
                     
                 elif function_name == "google_hotels":
                     from app.services.hotel_engine import HotelEngine
@@ -474,13 +491,63 @@ def get_trips(user_id: str, db: Session = Depends(get_db)):
 
 @router.post("/v1/trips/{pnr}/cancel")
 def cancel_trip(pnr: str, db: Session = Depends(get_db)):
+    import os
+    import requests as http_requests
+
     trip = db.query(Trip).filter(Trip.booking_reference == pnr).first()
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")
-    
+
+    if trip.status == TripStatusEnum.CANCELLED:
+        return {"status": "already_cancelled", "message": "This trip is already cancelled"}
+
+    duffel_order_id = trip.duffel_order_id
+    refund_info = {}
+
+    # If it's a Duffel booking with a valid order ID, cancel via Duffel API (2-step)
+    if duffel_order_id and trip.provider_source == ProviderSourceEnum.DUFFEL:
+        token = os.getenv("DUFFEL_ACCESS_TOKEN")
+        duffel_headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Duffel-Version": "v2"
+        }
+
+        # Step 1: Create cancellation quote
+        cancel_url = "https://api.duffel.com/air/order_cancellations"
+        cancel_data = {"data": {"order_id": duffel_order_id}}
+        resp1 = http_requests.post(cancel_url, json=cancel_data, headers=duffel_headers)
+
+        if resp1.status_code != 201:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Duffel cancellation quote failed: {resp1.text[:500]}"
+            )
+
+        cancellation = resp1.json()["data"]
+        cancellation_id = cancellation["id"]
+        refund_amount = cancellation.get("refund_amount", "0")
+        refund_currency = cancellation.get("refund_currency", "USD")
+
+        # Step 2: Confirm the cancellation
+        confirm_url = f"https://api.duffel.com/air/order_cancellations/{cancellation_id}/actions/confirm"
+        resp2 = http_requests.post(confirm_url, headers=duffel_headers)
+
+        if resp2.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Duffel cancellation confirm failed: {resp2.text[:500]}"
+            )
+
+        refund_info = {"refund_amount": refund_amount, "refund_currency": refund_currency}
+
     trip.status = TripStatusEnum.CANCELLED
     db.commit()
-    return {"status": "success", "message": "Trip cancelled successfully"}
+    return {
+        "status": "success",
+        "message": f"Trip {pnr} cancelled successfully",
+        **refund_info
+    }
 
 @router.get("/v1/seats/{offer_id}")
 def get_seat_map(offer_id: str):

@@ -391,20 +391,40 @@ class BookingOrchestrator:
                 "quantity": 1
             })
         
+        # Fetch the offer's exact total from Duffel to avoid payment mismatch
+        try:
+            offer_resp = requests.get(
+                f"https://api.duffel.com/air/offers/{real_offer_id}",
+                headers=headers
+            )
+            if offer_resp.status_code == 200:
+                offer_data = offer_resp.json()["data"]
+                duffel_amount = offer_data.get("total_amount", str(amount))
+                duffel_currency = offer_data.get("total_currency", "USD")
+                print(f"DEBUG: Duffel offer total: {duffel_amount} {duffel_currency} (passed: {amount})")
+            else:
+                duffel_amount = str(amount)
+                duffel_currency = "USD"
+                print(f"DEBUG: Could not fetch offer, using passed amount: {amount}")
+        except Exception as offer_err:
+            duffel_amount = str(amount)
+            duffel_currency = "USD"
+            print(f"DEBUG: Offer fetch error: {offer_err}, using passed amount: {amount}")
+
         data = {
             "data": {
                 "selected_offers": [real_offer_id],
                 "passengers": passengers_list,
-                "payments": [{"amount": str(amount), "currency": "USD", "type": "balance"}]
+                "payments": [{"amount": str(duffel_amount), "currency": duffel_currency, "type": "balance"}]
             }
         }
-        
+
         if services:
             data["data"]["services"] = services
-        
+
         try:
             response = requests.post(url, json=data, headers=headers)
-            
+
             if response.status_code != 201:
                  raise Exception(f"API Error: {response.text}")
                  
