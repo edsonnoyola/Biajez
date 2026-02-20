@@ -2297,13 +2297,26 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 profile = db.query(Profile).filter(Profile.user_id == user_id).first()
 
                 if profile:
+                    # Extract real airline code from trip segments
+                    airline_code = "XX"
+                    departure_time_iso = upcoming.get("flight", {}).get("departure_date", "")
+                    segments = upcoming.get("segments", [])
+                    if segments:
+                        flight_num = segments[0].get("flight_number", "")
+                        if flight_num and len(flight_num) >= 2:
+                            airline_code = flight_num[:2]  # e.g. "BA1234" -> "BA"
+                        # Use segment departure time (more precise than date)
+                        seg_dep = segments[0].get("departure_time", "")
+                        if seg_dep:
+                            departure_time_iso = seg_dep
+
                     result = checkin_service.schedule_auto_checkin(
                         user_id=user_id,
                         trip_id=pnr,
-                        airline_code="AM",  # Would need to get from trip
+                        airline_code=airline_code,
                         pnr=pnr,
                         passenger_last_name=profile.legal_last_name,
-                        departure_time=upcoming.get("flight", {}).get("departure_date", "")
+                        departure_time=departure_time_iso
                     )
 
                     if result.get("success"):
