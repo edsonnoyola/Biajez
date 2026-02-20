@@ -1,87 +1,66 @@
-# 🔑 Tokens de Producción - Biajez
-
-Este archivo guarda los tokens de PRODUCCIÓN para cuando estés listo para activar el sistema real.
+# Tokens de Produccion - Biajez
 
 ---
 
-## 🚀 Duffel Production Token
+## Estado Actual del Sistema
 
-**Token LIVE:**
+| API | Token | Modo | Estado |
+|-----|-------|------|--------|
+| Duffel | `duffel_live_...` | LIVE | Activo en Render |
+| OpenAI | `sk-proj-...` | Production | Activo en Render |
+| WhatsApp | Meta token | Production | Activo en Render |
+| Resend | `re_...` | Production | Activo en Render |
+| Redis | Render internal | Production | Activo |
+| LiteAPI | `sand_...` | Sandbox | Activo en Render |
+| Stripe | `sk_test_...` | Test | Configurado |
+| Amadeus | Test keys | Test | Configurado |
+
+**PRODUCCION ACTIVA** - Duffel LIVE genera tickets y PNR reales.
+
+---
+
+## Duffel Production Token
+
+**Token LIVE (activo en Render):**
 ```
 duffel_live_onvO5hoirtsdyRkJ8bb3XCeiyW-ZXQbPFAaS1jmyqqc
 ```
 
-**Para activar producción:**
+**Token TEST (para desarrollo local):**
+```
+duffel_test_w1lARg3nw8-41NoEfYdAhwheuyGBXQu9sCDgQrr-O5W
+```
 
-1. Abre `.env`
-2. Cambia:
-   ```bash
-   # De:
-   DUFFEL_ACCESS_TOKEN=duffel_test_w1lARg3nw8-41NoEfYdAhwheuyGBXQu9sCDgQrr-O5W
-   
-   # A:
-   DUFFEL_ACCESS_TOKEN=duffel_live_onvO5hoirtsdyRkJ8bb3XCeiyW-ZXQbPFAaS1jmyqqc
-   ```
-
-3. En `app/api/whatsapp_meta.py`, comenta las líneas 447-474 (mock booking)
-
-4. Reinicia backend:
-   ```bash
-   pkill -f "uvicorn app.main:app"
-   uvicorn app.main:app --port 8000
-   ```
+**Webhook Secret:** Pendiente configurar en Render como DUFFEL_WEBHOOK_SECRET
 
 ---
 
-## ⚠️ IMPORTANTE AL ACTIVAR PRODUCCIÓN
+## IMPORTANTE: Reservas LIVE
 
-**Cada reserva será REAL:**
-- ✈️ Se genera ticket verdadero
-- 💰 Duffel cobra comisión ($0.50 - $15 por reserva)
-- 📧 Email de confirmación real al pasajero
-- 🎫 PNR válido en aerolínea
-- ❌ Cancelaciones tienen penalidad
-
-**Recomendaciones:**
-1. Prueba primero con vuelos domésticos baratos
-2. Verifica que Stripe esté configurado para cobrar
-3. Ten políticas de cancelación claras
-4. Monitorea costos de Duffel en dashboard
+Cada reserva con token LIVE:
+- Genera ticket verdadero con PNR real en aerolinea
+- Duffel cobra comision ($0.50 - $15 por reserva)
+- Email de confirmacion real al pasajero
+- Cancelaciones pueden tener penalidad
+- El sistema muestra condiciones de cambio/reembolso antes de reservar
 
 ---
 
-## 📝 Estado Actual
+## Costos Duffel por Reserva
 
-**Sistema:**
-- Token: `duffel_test_` (TEST)
-- Mock booking: ACTIVO
-- Reservas: SIMULADAS
-- Perfecto para: Desarrollo y demos
-
-**Cuando activar producción:**
-- Tienes clientes reales listos
-- Stripe configurado y probado
-- Políticas de servicio definidas
-- Soporte al cliente listo
-
----
-
-## 💰 Costos Estimados de Duffel
-
-**Por reserva:**
-- Vuelos domésticos: ~$0.50 - $3
-- Vuelos internacionales: ~$5 - $15
-- Multi-city: ~$10 - $20
-
-**Plus:**
-- Búsquedas: GRATIS
-- Cambios/Cancelaciones: Variable
+| Tipo | Costo estimado |
+|------|---------------|
+| Vuelos domesticos | $0.50 - $3 |
+| Vuelos internacionales | $5 - $15 |
+| Multi-city | $10 - $20 |
+| Busquedas | GRATIS |
+| Cambios/Cancelaciones | Variable |
 
 **Dashboard:** https://duffel.com/dashboard
 
 ---
 
-## 🔐 Otros Tokens de Producción (Pendientes)
+## Tokens Pendientes
 
 ### Amadeus Production
 ```bash
@@ -93,15 +72,44 @@ AMADEUS_HOSTNAME=api.amadeus.com
 ### Stripe Live
 ```bash
 STRIPE_SECRET_KEY=sk_live_<obtener de stripe.com>
-STRIPE_PUBLISHABLE_KEY=pk_live_<obtener de stripe.com>
 ```
 
-### DuffelStays Production
+### LiteAPI Production
 ```bash
-DUFFEL_STAYS_TOKEN=stays_live_<obtener de duffel.com>
+LITEAPI_API_KEY=<obtener de liteapi.travel>
+LITEAPI_SANDBOX=false
+```
+
+### Duffel Webhook Secret
+```bash
+DUFFEL_WEBHOOK_SECRET=<obtener de duffel.com/webhooks>
+# Agregar en Render Dashboard → Environment
 ```
 
 ---
 
-**Archivo creado:** 2026-02-01  
-**Sistema:** Biajez WhatsApp Travel Bot
+## Variables en Render
+
+Verificar en: Render Dashboard → biajez-d08x → Environment
+
+```
+DATABASE_URL             ✅
+REDIS_URL                ✅
+DUFFEL_ACCESS_TOKEN      ✅ Live
+OPENAI_API_KEY           ✅
+WHATSAPP_ACCESS_TOKEN    ✅
+WHATSAPP_PHONE_NUMBER_ID ✅
+WHATSAPP_VERIFY_TOKEN    ✅
+RESEND_API_KEY           ✅
+BASE_URL                 ✅ https://biajez-d08x.onrender.com
+ADMIN_SECRET             ✅
+STRIPE_SECRET_KEY        ✅ Test
+LITEAPI_API_KEY          ✅ Sandbox
+AMADEUS_CLIENT_ID        ✅ Test
+AMADEUS_CLIENT_SECRET    ✅ Test
+DUFFEL_WEBHOOK_SECRET    ❌ PENDIENTE
+```
+
+---
+
+**Ultima actualizacion: 2026-02-20**

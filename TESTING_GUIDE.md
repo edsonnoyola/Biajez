@@ -4,13 +4,13 @@
 
 ### Local
 ```bash
-cd /Users/end/Downloads/Biajez
+cd /Users/end/Desktop/Biajez
 source .venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 ```
 
 ### Produccion
-- URL: https://biajez.onrender.com
+- URL: https://biajez-d08x.onrender.com
 - WhatsApp: Enviar mensaje al bot
 
 ---
@@ -21,7 +21,7 @@ uvicorn app.main:app --reload --port 8000
 
 | Test | Mensaje | Resultado Esperado |
 |------|---------|-------------------|
-| Ida simple | `vuelo de MEX a MIA el 15 feb` | Lista de vuelos con precios |
+| Ida simple | `vuelo de MEX a MIA el 15 feb` | Lista con precio, aerolinea, escalas, condiciones |
 | Redondo | `vuelo MEX a CUN del 10 al 15 marzo` | Vuelos ida y vuelta |
 | Manana | `vuelo SDQ a JFK en la manana` | Solo vuelos 6am-12pm |
 | Tarde | `vuelo MEX a LAX en la tarde` | Solo vuelos 12pm-6pm |
@@ -48,6 +48,54 @@ uvicorn app.main:app --reload --port 8000
 |------|---------|-------------------|
 | 2 tramos | `vuelo MEX a MIA el 1 marzo, luego MIA a MAD el 5` | Itinerario multi-ciudad |
 | 3 tramos | `MEX a MIA el 1, MIA a JFK el 5, JFK a LAX el 10` | 3 segmentos |
+
+### Formato de Resultados WhatsApp
+Cada vuelo debe mostrar:
+```
+*1.* $245 USD
+   AA1234 08:30 MEX→CUN
+   Directo | Cambio gratis | Reembolsable
+```
+- Precio con moneda
+- Codigo aerolinea + numero vuelo + hora + ruta
+- Escalas (Directo / 1 escala / 2 escalas)
+- Condiciones (Cambio gratis / Cambio: $X / Sin cambios / Reembolsable)
+
+---
+
+## Pruebas de Reserva
+
+| Test | Paso | Resultado Esperado |
+|------|------|-------------------|
+| Seleccionar vuelo | Responder con numero (ej: `1`) | Muestra confirmacion con precio y ruta |
+| Confirmar | Responder `si` | Reserva creada, PNR generado |
+| Email | - | Email de confirmacion enviado |
+| WhatsApp push | - | Notificacion de confirmacion |
+| Ver reservas | `mis vuelos` | Lista de reservas activas |
+
+---
+
+## Pruebas de Cancelacion
+
+| Test | Mensaje | Resultado Esperado |
+|------|---------|-------------------|
+| Iniciar | `cancelar vuelo` | Muestra viajes para cancelar |
+| Confirmar | Seleccionar vuelo + confirmar | Cancelacion procesada |
+| Reembolso | - | Monto de reembolso mostrado |
+| Email | - | Email de cancelacion enviado |
+| WhatsApp | - | Notificacion de cancelacion |
+
+---
+
+## Pruebas de Cambio de Vuelo
+
+| Test | Mensaje | Resultado Esperado |
+|------|---------|-------------------|
+| Iniciar | `cambiar vuelo` | Muestra viajes para cambiar |
+| Buscar opciones | Seleccionar + nueva fecha | Lista de opciones de cambio |
+| Confirmar | Seleccionar opcion | Cambio confirmado |
+| Email | - | Email de cambio enviado |
+| WhatsApp | - | Notificacion de cambio |
 
 ---
 
@@ -83,8 +131,7 @@ uvicorn app.main:app --reload --port 8000
 | Test | Mensaje | Resultado Esperado |
 |------|---------|-------------------|
 | USA | `visa US` | Requisitos para USA |
-| Espana | `visa MAD` | Requisitos para Espana |
-| India | `visa IN` | Requisitos e-visa |
+| Espana | `visa ES` | Requisitos para Espana |
 
 ### Alertas
 
@@ -93,65 +140,79 @@ uvicorn app.main:app --reload --port 8000
 | Ver | `alertas` | Lista de alertas activas |
 | Crear | `crear alerta` | Crea alerta (despues de buscar) |
 
+### Perfil y Registro
+
+| Test | Mensaje | Resultado Esperado |
+|------|---------|-------------------|
+| Registrar | `registrar` | Inicia flujo de registro |
+| Mi perfil | `mi perfil` | Muestra datos del perfil |
+| Reset | `reset` | Limpia sesion |
+
 ---
 
 ## Pruebas API (curl)
 
 ### Busqueda de Vuelos
 ```bash
-curl "https://biajez.onrender.com/v1/search?origin=MEX&destination=MIA&date=2026-02-15"
+curl "https://biajez-d08x.onrender.com/v1/search?origin=MEX&destination=MIA&date=2026-03-15"
 ```
 
 ### Con Filtros
 ```bash
 # Con aerolinea
-curl "https://biajez.onrender.com/v1/search?origin=SDQ&destination=MIA&date=2026-02-15&airline=AA"
+curl "https://biajez-d08x.onrender.com/v1/search?origin=SDQ&destination=MIA&date=2026-03-15&airline=AA"
 
 # Business class
-curl "https://biajez.onrender.com/v1/search?origin=MEX&destination=LAX&date=2026-02-20&cabin=BUSINESS"
+curl "https://biajez-d08x.onrender.com/v1/search?origin=MEX&destination=LAX&date=2026-03-20&cabin=BUSINESS"
 
 # En la manana
-curl "https://biajez.onrender.com/v1/search?origin=MEX&destination=MIA&date=2026-02-18&time_of_day=MORNING"
+curl "https://biajez-d08x.onrender.com/v1/search?origin=MEX&destination=MIA&date=2026-03-18&time_of_day=MORNING"
 ```
 
-### Scheduler Status
+### Health y Status
 ```bash
-curl "https://biajez.onrender.com/scheduler/status"
+# Health check
+curl "https://biajez-d08x.onrender.com/health"
+
+# Scheduler status
+curl "https://biajez-d08x.onrender.com/scheduler/status"
+
+# Admin health
+curl "https://biajez-d08x.onrender.com/admin/health"
+```
+
+### Admin
+```bash
+# Ver perfiles
+curl "https://biajez-d08x.onrender.com/admin/profiles?secret=ADMIN_SECRET"
+
+# Ver sesion
+curl "https://biajez-d08x.onrender.com/admin/session/525610016226?secret=ADMIN_SECRET"
+
+# Redis status
+curl "https://biajez-d08x.onrender.com/admin/redis-status?secret=ADMIN_SECRET"
+
+# Webhook log
+curl "https://biajez-d08x.onrender.com/admin/webhook-log?secret=ADMIN_SECRET"
+
+# Enviar test WhatsApp
+curl "https://biajez-d08x.onrender.com/admin/send-test?secret=ADMIN_SECRET&phone=525610016226"
 ```
 
 ---
 
-## Pruebas de Python
+## Pruebas de Webhooks
 
-### Test de Vuelos
-```python
-from dotenv import load_dotenv
-load_dotenv()
-
-import asyncio
-from app.services.flight_engine import FlightAggregator
-
-async def test():
-    fa = FlightAggregator()
-
-    # Basico
-    results = await fa.search_hybrid_flights('MEX', 'MIA', '2026-02-15')
-    print(f"Vuelos: {len(results)}")
-
-    # Con filtro
-    results = await fa.search_hybrid_flights('SDQ', 'MIA', '2026-02-15', airline='AA')
-    print(f"Vuelos AA: {len(results)}")
-
-asyncio.run(test())
+### Duffel Ping Test
+```bash
+# En Duffel dashboard: https://app.duffel.com/webhooks
+# Click "Send test event" → Seleccionar ping
+# Verificar en logs o admin/webhook-log
 ```
 
-### Test de Hoteles
-```python
-from app.services.liteapi_hotels import LiteAPIHotels
-
-api = LiteAPIHotels()
-hotels = api.search_hotels("Cancun", "2026-02-20", "2026-02-25")
-print(f"Hoteles: {len(hotels)}")
+### Verificar Webhook Processing
+```bash
+curl "https://biajez-d08x.onrender.com/admin/webhook-log?secret=ADMIN_SECRET&n=5"
 ```
 
 ---
@@ -160,46 +221,60 @@ print(f"Hoteles: {len(hotels)}")
 
 ### Vuelos
 - [ ] Busqueda basica funciona
+- [ ] Formato WhatsApp muestra condiciones (cambio/reembolso)
 - [ ] Vuelos redondos funcionan
 - [ ] Filtro por aerolinea funciona
 - [ ] Filtro por horario funciona
 - [ ] Clase business funciona
-- [ ] Multi-destino 2 tramos funciona
-- [ ] Multi-destino 3 tramos funciona
+- [ ] Multi-destino funciona
+- [ ] Reservacion genera PNR real
 
-### Hoteles
-- [ ] Busqueda basica funciona
-- [ ] Fechas se parsean correctamente
+### Notificaciones
+- [ ] Email de confirmacion llega
+- [ ] WhatsApp push de confirmacion llega
+- [ ] Email de cancelacion llega
+- [ ] WhatsApp push de cancelacion llega
 
-### Servicios
+### Gestion
+- [ ] Cancelacion funciona con reembolso
+- [ ] Cambio de vuelo funciona
 - [ ] Itinerario muestra viaje proximo
 - [ ] Historial muestra viajes pasados
-- [ ] Equipaje muestra opciones
-- [ ] Check-in muestra status
-- [ ] Auto check-in programa recordatorio
+
+### Servicios
+- [ ] Check-in funciona
 - [ ] Visa muestra requisitos
 - [ ] Alertas se crean y listan
+- [ ] Registro por WhatsApp funciona
 
-### Scheduler
-- [ ] Jobs estan programados
-- [ ] /scheduler/status responde
+### Admin
+- [ ] /health responde
+- [ ] /admin/redis-status funciona
+- [ ] /scheduler/status muestra jobs
+- [ ] /admin/send-test envia WhatsApp
 
 ---
 
 ## Troubleshooting
 
 ### "No encontre vuelos"
-- Verificar fecha es futura
-- Verificar codigos IATA validos
+- Verificar fecha es futura (minimo 2 dias)
+- Verificar codigos IATA validos (3 letras)
 - Revisar logs del servidor
 
 ### "Error de conexion"
-- Verificar servidor esta corriendo
-- Verificar URL correcta
+- Verificar servidor corriendo
+- Verificar URL: https://biajez-d08x.onrender.com
 
-### "Aerolinea no encontrada"
-- Usar codigo IATA (AA, AM, CM)
-- No todos los vuelos tienen todas las aerolineas
+### WhatsApp no responde
+- Verificar token no expirado en Meta Business
+- Verificar webhook URL correcta
+- `GET /admin/send-test` para probar envio directo
+
+### Emails no llegan
+- Verificar RESEND_API_KEY en Render
+- Verificar perfil tiene email real (no @whatsapp.temp)
+- Resend free: 100 emails/dia
 
 ---
 
@@ -211,10 +286,7 @@ print(f"Hoteles: {len(hotels)}")
 | MEX → MAD | 20-30 |
 | MEX → CUN | 30+ |
 | BOG → JFK | 20-30 |
-| PTY → SCL | 20-30 |
 
-| Ciudad | Hoteles Tipicos |
-|--------|----------------|
-| Cancun | 5-10 |
-| CDMX | Variable |
-| Punta Cana | 5-10 |
+---
+
+**Ultima actualizacion: 2026-02-20**

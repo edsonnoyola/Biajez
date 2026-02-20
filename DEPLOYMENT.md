@@ -1,201 +1,174 @@
-# Production Deployment Guide
+# Deployment Guide - Biajez
 
-## 🚀 Current Production Setup (Render)
+## Produccion Actual (Render)
 
-**Live URL:** https://biajez-ah0g.onrender.com
+**URL:** https://biajez-d08x.onrender.com
 
-### Services
-- **Backend:** Render Web Service (Python/FastAPI)
-- **Database:** Render PostgreSQL (biajez_db)
-- **Cache:** Render Redis
-- **Keep-alive:** GitHub Actions (pings every 5 minutes)
+### Servicios en Render
+- **Backend:** Web Service (Python/FastAPI) - auto-deploy desde GitHub main
+- **Database:** PostgreSQL (Render)
+- **Cache:** Redis (Render)
+- **Repo:** edsonnoyola/Biajez (publico)
 
-### Environment Variables (Render)
-```
+### Variables de Entorno (Render Dashboard)
+
+```bash
+# Database
 DATABASE_URL=postgresql://...
+
+# Cache
 REDIS_URL=redis://...
+
+# Vuelos (Duffel)
 DUFFEL_ACCESS_TOKEN=duffel_live_...
+DUFFEL_WEBHOOK_SECRET=whsec_...  # PENDIENTE - webhook signature skip sin esto
+
+# AI
 OPENAI_API_KEY=sk-...
+
+# WhatsApp (Meta)
 WHATSAPP_ACCESS_TOKEN=...
 WHATSAPP_PHONE_NUMBER_ID=...
 WHATSAPP_VERIFY_TOKEN=...
-RESEND_API_KEY=...
-ADMIN_SECRET=biajez_admin_2026
+
+# Email (Resend)
+RESEND_API_KEY=re_...
+BASE_URL=https://biajez-d08x.onrender.com
+
+# Pagos
+STRIPE_SECRET_KEY=sk_test_...
+
+# Admin
+ADMIN_SECRET=...
 ```
 
-### Admin Endpoints
+### Webhooks Configurados
+
+**WhatsApp (Meta Business Suite):**
+- URL: `https://biajez-d08x.onrender.com/v1/whatsapp/webhook`
+- Verify Token: configurado en WHATSAPP_VERIFY_TOKEN
+- Eventos: messages
+
+**Duffel (https://app.duffel.com/webhooks):**
+- URL: `https://biajez-d08x.onrender.com/webhooks/duffel`
+- Eventos:
+  - order.airline_initiated_change_detected
+  - order.cancelled
+  - order.changed
+  - payment.failed
+
+### Endpoints Principales
+
 ```bash
-# Health check
+# Health
 GET /health
 GET /admin/health
 
-# Profile management
-GET /admin/profiles?secret=ADMIN_SECRET
-GET /admin/profile/{phone}?secret=ADMIN_SECRET
-GET /admin/profile-by-userid/{user_id}?secret=ADMIN_SECRET
-POST /admin/fix-profile-phone?secret=ADMIN_SECRET&user_id=X&new_phone=Y
-
-# Database fixes
-POST /admin/fix-db?secret=ADMIN_SECRET
-
-# Server management
-POST /admin/restart?secret=ADMIN_SECRET
-GET /admin/logs?secret=ADMIN_SECRET
-GET /scheduler/status
+# Admin (requiere ?secret=ADMIN_SECRET)
+GET  /admin/profiles
+GET  /admin/profile/{phone}
+GET  /admin/session/{phone}
+GET  /admin/redis-status
+GET  /admin/list-trips
+GET  /admin/booking-errors
+GET  /admin/webhook-log
+POST /admin/clear-session/{phone}
+POST /admin/fix-db
+POST /admin/restart
+GET  /admin/send-test?phone=X&msg=Y
+GET  /scheduler/status
 ```
 
-### WhatsApp Bot Commands
-- **registrar** - Register/update profile
-- **mi perfil** - View profile and preferences
-- **preferencias** - View preferences only
-- **mis vuelos** / **mis reservas** - View bookings
-- **ayuda** - Show all commands
-- **reset** - Clear session
+### Comandos WhatsApp
+- `registrar` - Registro/actualizar perfil
+- `mi perfil` - Ver perfil
+- `mis vuelos` / `mis reservas` - Ver reservas
+- `ayuda` - Menu completo
+- `reset` - Limpiar sesion
 
 ---
 
-## 🚀 Alternative: Manual Server Deployment
+## Desarrollo Local
 
-### Prerequisites
+### Requisitos
+- Python 3.11+
+- Node.js 16+
+- Redis (opcional, usa fallback in-memory)
 
-1. **Server Requirements:**
-   - Python 3.9+
-   - Node.js 16+
-   - SQLite 3 (or PostgreSQL for production)
-   - Nginx (recommended)
-   - SSL certificate (Let's Encrypt)
-
-2. **API Keys:**
-   - Duffel API production token
-   - Stripe production keys
-   - Duffel webhook secret
-
----
-
-## 📋 Step-by-Step Deployment
-
-### 1. Server Setup
+### Setup
 
 ```bash
-# Update system
-sudo apt update && sudo apt upgrade -y
+# Clonar
+git clone https://github.com/edsonnoyola/Biajez.git
+cd Biajez
 
-# Install dependencies
-sudo apt install python3-pip python3-venv nginx certbot python3-certbot-nginx -y
-
-# Install Node.js
-curl -fsSL https://deb.nodesource.com/setup_16.x | sudo -E bash -
-sudo apt install -y nodejs
-```
-
-### 2. Clone and Setup Project
-
-```bash
-# Clone repository
-git clone https://github.com/yourusername/biajez.git
-cd biajez
-
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install Python dependencies
+# Backend
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 
-# Install frontend dependencies
+# Configurar env
+cp .env.production .env
+# Editar .env con valores correctos
+
+# Ejecutar backend
+uvicorn app.main:app --reload --port 8000
+
+# Frontend (otra terminal)
 cd frontend
 npm install
-npm run build
-cd ..
+npm run dev
 ```
 
-### 3. Configure Environment Variables
+**URLs locales:**
+- API: http://localhost:8000
+- Docs: http://localhost:8000/docs
+- Frontend: http://localhost:5173
 
+---
+
+## Deploy Manual (Servidor propio)
+
+### 1. Server Setup
 ```bash
-# Copy template
-cp .env.example .env
-
-# Edit with production values
-nano .env
+sudo apt update && sudo apt upgrade -y
+sudo apt install python3-pip python3-venv nginx certbot python3-certbot-nginx -y
 ```
 
-**Required variables:**
+### 2. Clone y Setup
 ```bash
-ENVIRONMENT=production
-DUFFEL_ACCESS_TOKEN=duffel_live_your_token
-STRIPE_SECRET_KEY=sk_live_your_key
-STRIPE_PUBLISHABLE_KEY=pk_live_your_key
-DUFFEL_WEBHOOK_SECRET=whsec_your_secret
-DATABASE_URL=postgresql://user:pass@localhost/biajez  # Recommended for production
+git clone https://github.com/edsonnoyola/Biajez.git
+cd Biajez
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-### 4. Database Setup
-
-```bash
-# For PostgreSQL (recommended)
-sudo apt install postgresql postgresql-contrib
-sudo -u postgres createdb biajez
-sudo -u postgres createuser biajez_user -P
-
-# Run migrations
-python migrate_webhooks.py
-python migrate_notifications_metadata.py
-```
-
-### 5. Configure Nginx
-
-```bash
-sudo nano /etc/nginx/sites-available/biajez
-```
-
+### 3. Nginx Config
 ```nginx
 server {
     listen 80;
-    server_name yourdomain.com www.yourdomain.com;
+    server_name yourdomain.com;
 
-    # Frontend
     location / {
-        root /path/to/biajez/frontend/dist;
+        root /path/to/Biajez/frontend/dist;
         try_files $uri $uri/ /index.html;
     }
 
-    # Backend API
     location /v1 {
         proxy_pass http://localhost:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Webhooks
     location /webhooks {
         proxy_pass http://localhost:8000;
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
     }
 }
 ```
 
-```bash
-# Enable site
-sudo ln -s /etc/nginx/sites-available/biajez /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
-```
-
-### 6. SSL Certificate
-
-```bash
-sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
-```
-
-### 7. Setup Systemd Service
-
-```bash
-sudo nano /etc/systemd/system/biajez.service
-```
-
+### 4. Systemd Service
 ```ini
 [Unit]
 Description=Biajez API
@@ -204,176 +177,68 @@ After=network.target
 [Service]
 Type=simple
 User=www-data
-WorkingDirectory=/path/to/biajez
-Environment="PATH=/path/to/biajez/venv/bin"
-ExecStart=/path/to/biajez/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+WorkingDirectory=/path/to/Biajez
+Environment="PATH=/path/to/Biajez/venv/bin"
+ExecStart=/path/to/Biajez/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
 ```
 
+### 5. SSL
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable biajez
-sudo systemctl start biajez
-sudo systemctl status biajez
-```
-
-### 8. Setup Database Backups
-
-```bash
-# Make backup script executable
-chmod +x backup_db.sh
-
-# Add to crontab (daily at 2 AM)
-crontab -e
-```
-
-Add line:
-```
-0 2 * * * /path/to/biajez/backup_db.sh
-```
-
-### 9. Configure Duffel Webhooks
-
-1. Go to https://app.duffel.com/webhooks
-2. Add webhook URL: `https://yourdomain.com/webhooks/duffel`
-3. Select events:
-   - order.airline_initiated_change_detected
-   - order.cancelled
-   - order.changed
-   - payment.failed
-4. Copy webhook secret to `.env`
-
-### 10. Test Deployment
-
-```bash
-# Check API
-curl https://yourdomain.com/v1/
-
-# Check frontend
-curl https://yourdomain.com/
-
-# Check logs
-sudo journalctl -u biajez -f
+sudo certbot --nginx -d yourdomain.com
 ```
 
 ---
 
-## 🔒 Security Checklist
+## Troubleshooting
 
-- [ ] HTTPS enabled (SSL certificate)
-- [ ] Environment variables secured
-- [ ] Database credentials secured
-- [ ] CORS configured for specific domains
-- [ ] Rate limiting enabled
-- [ ] Firewall configured
-- [ ] Regular backups scheduled
-- [ ] Monitoring setup
+### Servidor no arranca
+```bash
+# Render
+# Ver logs en Render Dashboard → Logs
+
+# Local
+uvicorn app.main:app --port 8000
+# Revisar output de ENVIRONMENT VARIABLES CHECK
+```
+
+### WhatsApp no recibe mensajes
+1. Verificar WHATSAPP_ACCESS_TOKEN no expirado
+2. Verificar webhook URL en Meta Business Suite
+3. Verificar WHATSAPP_VERIFY_TOKEN coincide
+4. `GET /admin/send-test?secret=X&phone=Y` para probar envio
+
+### Redis no conecta
+1. `GET /admin/redis-status?secret=X` para diagnostico
+2. Si Redis falla, usa fallback in-memory automaticamente
+3. Verificar REDIS_URL en variables de entorno
+
+### Emails no llegan
+1. Verificar RESEND_API_KEY en Render
+2. Verificar BASE_URL=https://biajez-d08x.onrender.com
+3. Resend free tier: 100 emails/dia
+
+### Webhooks Duffel no llegan
+1. Verificar URL en https://app.duffel.com/webhooks
+2. Verificar DUFFEL_WEBHOOK_SECRET (si no esta, signature skip)
+3. `GET /admin/webhook-log?secret=X` para ver eventos
 
 ---
 
-## 📊 Monitoring
+## Security Checklist
 
-### Setup Logging
-
-```python
-# Already configured in error_handler.py
-# Logs will be in /var/log/biajez/
-```
-
-### Recommended Tools
-
-- **Uptime monitoring:** UptimeRobot, Pingdom
-- **Error tracking:** Sentry
-- **Analytics:** Google Analytics, Plausible
-- **Performance:** New Relic, Datadog
+- [x] HTTPS (Render SSL automatico)
+- [x] Variables de entorno en Render (no en codigo)
+- [x] CORS configurado
+- [x] ADMIN_SECRET para endpoints admin
+- [x] Redis para sesiones (no in-memory en prod)
+- [x] Webhook signature verification (Duffel HMAC-SHA256)
+- [ ] DUFFEL_WEBHOOK_SECRET pendiente en Render
+- [ ] Rate limiting (pendiente)
 
 ---
 
-## 🔄 Updates & Maintenance
-
-### Deploying Updates
-
-```bash
-# Pull latest code
-git pull origin main
-
-# Update dependencies
-pip install -r requirements.txt
-cd frontend && npm install && npm run build && cd ..
-
-# Restart service
-sudo systemctl restart biajez
-```
-
-### Database Migrations
-
-```bash
-# Run migration scripts
-python new_migration.py
-
-# Restart service
-sudo systemctl restart biajez
-```
-
----
-
-## 🆘 Troubleshooting
-
-### Service won't start
-
-```bash
-# Check logs
-sudo journalctl -u biajez -n 50
-
-# Check configuration
-python -c "import app.config"
-```
-
-### Database connection issues
-
-```bash
-# Check PostgreSQL
-sudo systemctl status postgresql
-
-# Test connection
-psql -U biajez_user -d biajez
-```
-
-### Nginx errors
-
-```bash
-# Check config
-sudo nginx -t
-
-# Check logs
-sudo tail -f /var/log/nginx/error.log
-```
-
----
-
-## 📞 Support
-
-For issues or questions:
-- Check logs: `sudo journalctl -u biajez -f`
-- Review configuration: `app/config.py`
-- Test endpoints: `curl https://yourdomain.com/v1/`
-
----
-
-## ✅ Post-Deployment Checklist
-
-- [ ] API responding correctly
-- [ ] Frontend loading
-- [ ] Payments working (test mode first!)
-- [ ] Webhooks receiving events
-- [ ] Database backups running
-- [ ] SSL certificate valid
-- [ ] Monitoring active
-- [ ] Error tracking configured
-- [ ] Documentation updated
-- [ ] Team notified
-
-🎉 **Deployment Complete!**
+**Ultima actualizacion: 2026-02-20**
