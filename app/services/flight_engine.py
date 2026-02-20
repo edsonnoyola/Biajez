@@ -79,7 +79,8 @@ class FlightAggregator:
             cabin=cabin_class,
             airline_filter=airline,
             return_date=return_date,
-            num_passengers=num_passengers
+            num_passengers=num_passengers,
+            time_of_day=time_of_day
         ))
         travelpayouts_task = asyncio.create_task(self._search_travelpayouts(origin, destination, departure_date, cabin_class, return_date))
         
@@ -304,17 +305,20 @@ class FlightAggregator:
             print(f"Amadeus Unexpected Error: {e}")
             return []
 
-    async def _search_duffel(self, origin, dest, date, cabin, airline_filter=None, return_date=None, custom_slices=None, num_passengers=1):
+    async def _search_duffel(self, origin, dest, date, cabin, airline_filter=None, return_date=None, custom_slices=None, num_passengers=1, time_of_day="ANY"):
         try:
             import requests
             token = os.getenv("DUFFEL_ACCESS_TOKEN")
-            url = "https://api.duffel.com/air/offer_requests"
+            # Duffel best practice: use return_offers=true and supplier_timeout for speed
+            url = "https://api.duffel.com/air/offer_requests?return_offers=true&supplier_timeout=20000"
             headers = {
                 "Authorization": f"Bearer {token}",
+                "Accept-Encoding": "gzip",
+                "Accept": "application/json",
                 "Content-Type": "application/json",
                 "Duffel-Version": "v2"
             }
-            
+
             if custom_slices:
                 slices = custom_slices
             else:
@@ -322,19 +326,35 @@ class FlightAggregator:
                 if return_date:
                     slices.append({"origin": dest, "destination": origin, "departure_date": return_date})
 
+            # Duffel best practice: add departure_time filter based on time_of_day preference
+            # This reduces results at the API level for faster responses
+            if time_of_day and time_of_day != "ANY":
+                time_ranges = {
+                    "EARLY_MORNING": {"from": "00:00", "to": "06:00"},
+                    "MORNING": {"from": "06:00", "to": "12:00"},
+                    "AFTERNOON": {"from": "12:00", "to": "18:00"},
+                    "EVENING": {"from": "18:00", "to": "23:59"},
+                    "NIGHT": {"from": "22:00", "to": "23:59"},
+                }
+                dep_time = time_ranges.get(time_of_day)
+                if dep_time and not custom_slices:
+                    # Add departure_time to the first slice
+                    slices[0]["departure_time"] = dep_time
+
             # Generate passengers list dynamically based on num_passengers
             passengers_list = [{"type": "adult"} for _ in range(num_passengers)]
-            
+
             payload = {
                 "data": {
                     "slices": slices,
-                    "passengers": passengers_list,  # Now dynamic
-                    "cabin_class": (cabin or "economy").lower()
+                    "passengers": passengers_list,
+                    "cabin_class": (cabin or "economy").lower(),
+                    "max_connections": 1  # Duffel best practice: limit connections for speed + relevance
                 }
             }
-            
+
             print(f"DEBUG: Duffel request payload: {json.dumps(payload, indent=2)}")
-            
+
             response = await asyncio.to_thread(requests.post, url, json=payload, headers=headers)
             
             if response.status_code != 201:
