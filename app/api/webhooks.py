@@ -142,7 +142,7 @@ async def register_duffel_webhook(
     Returns:
         Webhook ID and secret (save the secret in DUFFEL_WEBHOOK_SECRET!)
     """
-    expected_secret = os.getenv("ADMIN_SECRET", "biajez-admin-2024")
+    expected_secret = os.getenv("ADMIN_SECRET")
     if admin_secret != expected_secret:
         raise HTTPException(status_code=403, detail="Invalid admin secret")
 
@@ -224,7 +224,7 @@ async def list_duffel_webhooks(
     admin_secret: str = Query(...)
 ):
     """List all registered webhooks in Duffel."""
-    expected_secret = os.getenv("ADMIN_SECRET", "biajez-admin-2024")
+    expected_secret = os.getenv("ADMIN_SECRET")
     if admin_secret != expected_secret:
         raise HTTPException(status_code=403, detail="Invalid admin secret")
 
@@ -267,7 +267,7 @@ async def delete_duffel_webhook(
     admin_secret: str = Query(...)
 ):
     """Delete a webhook from Duffel."""
-    expected_secret = os.getenv("ADMIN_SECRET", "biajez-admin-2024")
+    expected_secret = os.getenv("ADMIN_SECRET")
     if admin_secret != expected_secret:
         raise HTTPException(status_code=403, detail="Invalid admin secret")
 
@@ -304,7 +304,7 @@ async def ping_duffel_webhook(
     admin_secret: str = Query(...)
 ):
     """Send a test ping to a webhook."""
-    expected_secret = os.getenv("ADMIN_SECRET", "biajez-admin-2024")
+    expected_secret = os.getenv("ADMIN_SECRET")
     if admin_secret != expected_secret:
         raise HTTPException(status_code=403, detail="Invalid admin secret")
 
