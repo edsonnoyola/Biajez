@@ -56,7 +56,7 @@ class PushNotificationService:
         }
 
         try:
-            response = requests.post(self.base_url, json=payload, headers=headers)
+            response = requests.post(self.base_url, json=payload, headers=headers, timeout=10)
 
             if response.status_code == 200:
                 return {"success": True, "message_id": response.json().get("messages", [{}])[0].get("id")}

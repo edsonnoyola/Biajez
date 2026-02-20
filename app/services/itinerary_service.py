@@ -139,7 +139,8 @@ class ItineraryService:
 
             response = requests.get(
                 f"https://api.duffel.com/air/orders/{order_id}",
-                headers=headers
+                headers=headers,
+                timeout=15
             )
 
             if response.status_code != 200:

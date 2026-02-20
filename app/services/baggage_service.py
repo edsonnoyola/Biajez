@@ -38,7 +38,7 @@ class BaggageService:
         try:
             # First get order details to see current baggage
             order_url = f"{self.base_url}/air/orders/{order_id}"
-            order_response = requests.get(order_url, headers=self.headers)
+            order_response = requests.get(order_url, headers=self.headers, timeout=15)
 
             if order_response.status_code != 200:
                 return {
@@ -50,7 +50,7 @@ class BaggageService:
 
             # Get available services for this order
             services_url = f"{self.base_url}/air/orders/{order_id}/available_services"
-            services_response = requests.get(services_url, headers=self.headers)
+            services_response = requests.get(services_url, headers=self.headers, timeout=15)
 
             baggage_options = []
             current_baggage = []
@@ -126,7 +126,7 @@ class BaggageService:
             else:
                 # Fetch available services to get prices
                 avail_url = f"{self.base_url}/air/orders/{order_id}/available_services"
-                avail_resp = requests.get(avail_url, headers=self.headers)
+                avail_resp = requests.get(avail_url, headers=self.headers, timeout=15)
                 if avail_resp.status_code == 200:
                     for svc in avail_resp.json().get("data", []):
                         price_map[svc["id"]] = {
@@ -157,7 +157,7 @@ class BaggageService:
             }
 
             print(f"🧳 Adding baggage to {order_id}: {len(service_ids)} services, total ${total_amount:.2f} {payment_currency}")
-            response = requests.post(url, json=payload, headers=self.headers)
+            response = requests.post(url, json=payload, headers=self.headers, timeout=15)
 
             if response.status_code in [200, 201]:
                 result = response.json()["data"]

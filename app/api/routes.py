@@ -518,7 +518,7 @@ def cancel_trip(pnr: str, db: Session = Depends(get_db)):
         # Step 1: Create cancellation quote
         cancel_url = "https://api.duffel.com/air/order_cancellations"
         cancel_data = {"data": {"order_id": duffel_order_id}}
-        resp1 = http_requests.post(cancel_url, json=cancel_data, headers=duffel_headers)
+        resp1 = http_requests.post(cancel_url, json=cancel_data, headers=duffel_headers, timeout=30)
 
         if resp1.status_code != 201:
             raise HTTPException(
@@ -533,7 +533,7 @@ def cancel_trip(pnr: str, db: Session = Depends(get_db)):
 
         # Step 2: Confirm the cancellation
         confirm_url = f"https://api.duffel.com/air/order_cancellations/{cancellation_id}/actions/confirm"
-        resp2 = http_requests.post(confirm_url, headers=duffel_headers)
+        resp2 = http_requests.post(confirm_url, headers=duffel_headers, timeout=30)
 
         if resp2.status_code != 200:
             raise HTTPException(
@@ -571,7 +571,7 @@ def get_seat_map(offer_id: str):
     }
     
     try:
-        res = requests.get(url, headers=headers)
+        res = requests.get(url, headers=headers, timeout=15)
         if res.status_code != 200:
             # If no seat map (e.g. not supported by airline), return empty
             return {"maps": []}

@@ -371,7 +371,7 @@ class BookingOrchestrator:
                 try:
                     offer_check = requests.get(
                         f"https://api.duffel.com/air/offers/{real_offer_id}",
-                        headers=headers
+                        headers=headers, timeout=15
                     )
                     if offer_check.status_code == 200:
                         offer_info = offer_check.json()["data"]
@@ -416,7 +416,7 @@ class BookingOrchestrator:
         try:
             offer_resp = requests.get(
                 f"https://api.duffel.com/air/offers/{real_offer_id}",
-                headers={**headers, "Content-Type": "application/json"}
+                headers={**headers, "Content-Type": "application/json"}, timeout=15
             )
             if offer_resp.status_code == 200:
                 offer_data = offer_resp.json()["data"]
@@ -444,7 +444,7 @@ class BookingOrchestrator:
             data["data"]["services"] = services
 
         try:
-            response = requests.post(url, json=data, headers=headers)
+            response = requests.post(url, json=data, headers=headers, timeout=30)
 
             if response.status_code not in [200, 201]:
                  raise Exception(f"API Error: {response.text}")

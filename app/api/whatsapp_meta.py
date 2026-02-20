@@ -856,7 +856,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                 selected_slice = pending.get("selected_slice")
 
                 # Fetch order from Duffel to get current slice IDs
-                order_resp = _requests.get(f"https://api.duffel.com/air/orders/{order_id}", headers=duffel_headers)
+                order_resp = _requests.get(f"https://api.duffel.com/air/orders/{order_id}", headers=duffel_headers, timeout=15)
                 if order_resp.status_code != 200:
                     print(f"❌ Order fetch failed: {order_resp.status_code} - {order_resp.text[:300]}")
                     send_whatsapp_message(from_number, "❌ No se pudo obtener la información de tu vuelo.\n\nIntenta de nuevo en unos minutos.")
@@ -924,7 +924,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                         }
                     }
                 }
-                change_resp = _requests.post(change_url, json=change_payload, headers=duffel_headers)
+                change_resp = _requests.post(change_url, json=change_payload, headers=duffel_headers, timeout=30)
 
                 if change_resp.status_code != 201:
                     error_msg = change_resp.text
@@ -1032,7 +1032,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                         "selected_order_change_offer": offer_id
                     }
                 }
-                resp = _requests.post(create_url, json=create_payload, headers=duffel_headers)
+                resp = _requests.post(create_url, json=create_payload, headers=duffel_headers, timeout=30)
 
                 if resp.status_code in [200, 201]:
                     change_data = resp.json()["data"]
@@ -1055,7 +1055,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                         }
 
                     print(f"DEBUG: Confirming change {change_id} with payment: {payment_amount} {payment_currency}")
-                    confirm_resp = _requests.post(confirm_url, json=confirm_payload, headers=duffel_headers)
+                    confirm_resp = _requests.post(confirm_url, json=confirm_payload, headers=duffel_headers, timeout=30)
                     if confirm_resp.status_code not in [200, 201]:
                         print(f"❌ Change confirm failed: {confirm_resp.status_code} - {confirm_resp.text[:300]}")
                         send_whatsapp_message(from_number, "❌ No se pudo confirmar el cambio de vuelo.\n\nIntenta de nuevo o busca otra opción.")
@@ -1594,27 +1594,30 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
             provider = flight.get("provider")
             amount = float(flight.get("price", 0))
 
-            # Simple profile lookup using ORM (this is how it worked originally)
+            # Profile lookup — MUST have real data before booking
             profile = db.query(Profile).filter(Profile.user_id == session["user_id"]).first()
-            if not profile:
-                # Create default profile - same as original working code
-                profile = Profile(
-                    user_id=session["user_id"],
-                    legal_first_name="WhatsApp",
-                    legal_last_name="User",
-                    email=f"{session['user_id']}@whatsapp.temp",
-                    phone_number=from_number,
-                    gender="M",
-                    dob=dt.strptime("1990-01-01", "%Y-%m-%d").date(),
-                    passport_number="000000000",
-                    passport_expiry=dt.strptime("2030-01-01", "%Y-%m-%d").date(),
-                    passport_country="US"
-                )
-                db.add(profile)
-                try:
-                    db.commit()
-                except:
-                    db.rollback()
+            if not profile or not profile.legal_first_name or profile.legal_first_name in ["WhatsApp", ""]:
+                response_text = "⚠️ *Necesitas completar tu perfil antes de reservar*\n\n"
+                response_text += "Para comprar boletos necesito tu nombre legal, fecha de nacimiento y pasaporte.\n\n"
+                response_text += "Escribe *registrar* para iniciar el registro."
+                send_whatsapp_message(from_number, response_text)
+                return {"status": "ok"}
+
+            # Validate critical fields for airline booking
+            missing = []
+            if not profile.legal_last_name or profile.legal_last_name in ["User", ""]:
+                missing.append("apellido")
+            if not profile.dob or str(profile.dob) == "1990-01-01":
+                missing.append("fecha de nacimiento")
+            if not profile.email or "@whatsapp.temp" in str(profile.email):
+                missing.append("email")
+
+            if missing:
+                response_text = f"⚠️ *Perfil incompleto*\n\n"
+                response_text += f"Falta: {', '.join(missing)}\n\n"
+                response_text += "Escribe *registrar* para completar tus datos."
+                send_whatsapp_message(from_number, response_text)
+                return {"status": "ok"}
 
             print(f"🔍 CONFIRM: user_id={session.get('user_id')}, profile={profile.legal_first_name if profile else 'None'}, provider={provider}")
             
@@ -1762,6 +1765,38 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
 
                 # REAL BOOKING (for production flight IDs - Duffel/Amadeus)
                 print(f"🎫 REAL BOOKING: {offer_id} via {provider}")
+
+                # Verify price hasn't changed significantly before booking
+                try:
+                    import requests as _req
+                    token = os.getenv("DUFFEL_ACCESS_TOKEN")
+                    price_check = _req.get(
+                        f"https://api.duffel.com/air/offers/{offer_id}",
+                        headers={"Authorization": f"Bearer {token}", "Accept": "application/json",
+                                 "Accept-Encoding": "gzip", "Duffel-Version": "v2"},
+                        timeout=10
+                    )
+                    if price_check.status_code == 200:
+                        current_price = float(price_check.json()["data"].get("total_amount", amount))
+                        original_price = float(amount)
+                        if original_price > 0 and current_price > original_price * 1.05:
+                            # Price increased more than 5%
+                            response_text = f"⚠️ *El precio cambió*\n\n"
+                            response_text += f"Precio original: ${original_price:.2f}\n"
+                            response_text += f"Precio actual: *${current_price:.2f}*\n\n"
+                            response_text += "¿Deseas continuar con el nuevo precio?\n"
+                            response_text += "Escribe *si* para confirmar o *buscar* para buscar de nuevo."
+                            # Update the stored price so next confirm uses the real one
+                            flight_dict["price"] = str(current_price)
+                            session["selected_flight"] = flight_dict
+                            session_manager.save_session(from_number, session)
+                            send_whatsapp_message(from_number, response_text)
+                            return {"status": "ok"}
+                        # Use the verified current price
+                        amount = current_price
+                except Exception as price_err:
+                    print(f"⚠️ Price verification failed (proceeding): {price_err}")
+
                 orchestrator = BookingOrchestrator(db)
                 booking_result = orchestrator.execute_booking(
                     session["user_id"], offer_id, provider, amount
@@ -1985,7 +2020,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                         # Step 1: Create cancellation request (gets quote)
                         cancel_url = "https://api.duffel.com/air/order_cancellations"
                         cancel_data = {"data": {"order_id": duffel_order_id}}
-                        resp1 = requests.post(cancel_url, json=cancel_data, headers=duffel_headers)
+                        resp1 = requests.post(cancel_url, json=cancel_data, headers=duffel_headers, timeout=15)
 
                         if resp1.status_code in [200, 201]:
                             cancellation = resp1.json()["data"]
@@ -1995,17 +2030,30 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
 
                             # Step 2: Confirm the cancellation
                             confirm_url = f"https://api.duffel.com/air/order_cancellations/{cancellation_id}/actions/confirm"
-                            resp2 = requests.post(confirm_url, headers=duffel_headers)
+                            resp2 = requests.post(confirm_url, headers=duffel_headers, timeout=30)
 
                             if resp2.status_code in [200, 201]:
-                                # Update DB via raw SQL
-                                with engine.connect() as conn:
-                                    conn.execute(
-                                        text("UPDATE trips SET status = 'CANCELLED', refund_amount = :refund WHERE booking_reference = :pnr"),
-                                        {"refund": float(refund_amount), "pnr": pnr}
-                                    )
-                                    conn.commit()
-                                response_text = f"✅ Reserva {pnr} cancelada exitosamente\n\nReembolso: ${refund_amount} {refund_currency}"
+                                # Update DB via raw SQL — CRITICAL: must succeed to stay consistent
+                                db_updated = False
+                                for _attempt in range(3):
+                                    try:
+                                        with engine.connect() as conn:
+                                            conn.execute(
+                                                text("UPDATE trips SET status = 'CANCELLED', refund_amount = :refund WHERE booking_reference = :pnr"),
+                                                {"refund": float(refund_amount), "pnr": pnr}
+                                            )
+                                            conn.commit()
+                                        db_updated = True
+                                        break
+                                    except Exception as db_err:
+                                        print(f"⚠️ DB update attempt {_attempt+1} failed: {db_err}")
+                                        import time; time.sleep(0.5)
+
+                                if db_updated:
+                                    response_text = f"✅ Reserva {pnr} cancelada exitosamente\n\nReembolso: ${refund_amount} {refund_currency}"
+                                else:
+                                    print(f"🚨 CRITICAL: Duffel cancelled {pnr} but DB update failed after 3 attempts!")
+                                    response_text = f"✅ Reserva {pnr} cancelada en la aerolínea\n\nReembolso: ${refund_amount} {refund_currency}\n\n⚠️ Hubo un problema actualizando tu historial. Contacta soporte si ves inconsistencias."
                             else:
                                 print(f"❌ Cancel confirm failed: {resp2.status_code} - {resp2.text[:300]}")
                                 response_text = f"❌ No se pudo confirmar la cancelación de {pnr}.\n\nIntenta de nuevo o contacta soporte."
@@ -2830,7 +2878,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                             "Accept-Encoding": "gzip",
                             "Duffel-Version": "v2"
                         }
-                        order_resp = _requests.get(f"https://api.duffel.com/air/orders/{order_id}", headers=duffel_headers)
+                        order_resp = _requests.get(f"https://api.duffel.com/air/orders/{order_id}", headers=duffel_headers, timeout=15)
                         if order_resp.status_code == 200:
                             order_data = order_resp.json()["data"]
                             for s in order_data.get("slices", []):
@@ -3512,8 +3560,8 @@ def send_whatsapp_message(to_number: str, text: str):
     }
     
     try:
-        response = requests.post(url, json=data, headers=headers)
-        
+        response = requests.post(url, json=data, headers=headers, timeout=10)
+
         if response.status_code == 200:
             print(f"✅ WhatsApp message sent to {to_number}")
         else:
@@ -3588,8 +3636,8 @@ def send_interactive_message(to_number: str, body_text: str, buttons: list, head
     }
     
     try:
-        response = requests.post(url, json=data, headers=headers)
-        
+        response = requests.post(url, json=data, headers=headers, timeout=10)
+
         if response.status_code == 200:
             print(f"✅ Interactive message sent to {to_number} with {len(buttons)} buttons")
         else:

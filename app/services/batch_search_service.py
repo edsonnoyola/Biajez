@@ -80,11 +80,11 @@ class BatchSearchService:
         
         try:
             print(f"🔍 Creating batch search: {origin} → {destination} on {departure_date}")
-            response = requests.post(url, headers=self.headers, json=payload)
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
             response.raise_for_status()
-            
+
             data = response.json()["data"]
-            
+
             result = {
                 "batch_id": data["id"],
                 "total_batches": data["total_batches"],
@@ -119,11 +119,11 @@ class BatchSearchService:
         url = f"{self.base_url}/air/batch_offer_requests/{batch_id}"
         
         try:
-            response = requests.get(url, headers=self.headers)
+            response = requests.get(url, headers=self.headers, timeout=15)
             response.raise_for_status()
-            
+
             data = response.json()["data"]
-            
+
             offers = data.get("offers", [])
             total_batches = data["total_batches"]
             remaining_batches = data["remaining_batches"]

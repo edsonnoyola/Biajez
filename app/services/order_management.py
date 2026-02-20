@@ -32,7 +32,7 @@ class OrderManager:
         url = f"{self.base_url}/air/orders/{order_id}"
         
         try:
-            response = requests.get(url, headers=self.headers)
+            response = requests.get(url, headers=self.headers, timeout=15)
             response.raise_for_status()
             return response.json()["data"]
         except requests.exceptions.RequestException as e:
@@ -57,7 +57,7 @@ class OrderManager:
         }
         
         try:
-            response = requests.post(url, headers=self.headers, json=payload)
+            response = requests.post(url, headers=self.headers, json=payload, timeout=15)
             response.raise_for_status()
             cancellation = response.json()["data"]
             
@@ -107,7 +107,7 @@ class OrderManager:
         url = f"{self.base_url}/air/order_cancellations/{quote['cancellation_id']}/actions/confirm"
 
         try:
-            response = requests.post(url, headers=self.headers)
+            response = requests.post(url, headers=self.headers, timeout=30)
             response.raise_for_status()
             confirmed = response.json()["data"]
 

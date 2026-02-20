@@ -69,7 +69,7 @@ class OrderChangeService:
         }
         
         try:
-            response = requests.post(url, headers=self.headers, json=payload)
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
             response.raise_for_status()
             change_request = response.json()["data"]
             
@@ -114,7 +114,7 @@ class OrderChangeService:
         url = f"{self.base_url}/air/order_change_requests/{request_id}"
         
         try:
-            response = requests.get(url, headers=self.headers)
+            response = requests.get(url, headers=self.headers, timeout=15)
             response.raise_for_status()
             return response.json()["data"]
         except requests.exceptions.RequestException as e:
@@ -168,7 +168,7 @@ class OrderChangeService:
         url = f"{self.base_url}/air/order_change_offers/{offer_id}"
         
         try:
-            response = requests.get(url, headers=self.headers)
+            response = requests.get(url, headers=self.headers, timeout=15)
             response.raise_for_status()
             return response.json()["data"]
         except requests.exceptions.RequestException as e:
@@ -205,7 +205,7 @@ class OrderChangeService:
         }
 
         try:
-            response = requests.post(url, headers=self.headers, json=payload)
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
             response.raise_for_status()
             order_change = response.json()["data"]
             change_id = order_change["id"]
@@ -222,7 +222,7 @@ class OrderChangeService:
                     }
                 }
             }
-            confirm_response = requests.post(confirm_url, headers=self.headers, json=confirm_payload)
+            confirm_response = requests.post(confirm_url, headers=self.headers, json=confirm_payload, timeout=30)
             confirm_response.raise_for_status()
             confirmed_change = confirm_response.json()["data"]
             print(f"✅ Order change confirmed: {confirmed_change.get('confirmed_at')}")
