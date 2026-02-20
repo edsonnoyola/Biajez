@@ -105,6 +105,7 @@ async def accept_flight_change(
                     "Authorization": f"Bearer {duffel_token}",
                     "Duffel-Version": "v2",
                     "Accept": "application/json",
+                    "Accept-Encoding": "gzip",
                 },
                 timeout=15
             )
@@ -231,6 +232,8 @@ async def reject_flight_change(
                     "Authorization": f"Bearer {duffel_token}",
                     "Duffel-Version": "v2",
                     "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "Accept-Encoding": "gzip",
                 },
                 json={"data": {"order_id": trip.duffel_order_id}},
                 timeout=30
@@ -249,6 +252,8 @@ async def reject_flight_change(
                         headers={
                             "Authorization": f"Bearer {duffel_token}",
                             "Duffel-Version": "v2",
+                            "Accept": "application/json",
+                            "Accept-Encoding": "gzip",
                         },
                         timeout=30
                     )

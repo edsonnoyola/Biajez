@@ -14,6 +14,8 @@ class SeatSelectionService:
         self.base_url = "https://api.duffel.com"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
             "Duffel-Version": "v2",
             "Content-Type": "application/json"
         }

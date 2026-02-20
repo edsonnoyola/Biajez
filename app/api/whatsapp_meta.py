@@ -741,6 +741,8 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 duffel_headers = {
                     "Authorization": f"Bearer {token}",
                     "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "Accept-Encoding": "gzip",
                     "Duffel-Version": "v2"
                 }
 
@@ -915,6 +917,8 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 duffel_headers = {
                     "Authorization": f"Bearer {token}",
                     "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "Accept-Encoding": "gzip",
                     "Duffel-Version": "v2"
                 }
 
@@ -927,7 +931,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 }
                 resp = _requests.post(create_url, json=create_payload, headers=duffel_headers)
 
-                if resp.status_code == 201:
+                if resp.status_code in [200, 201]:
                     change_data = resp.json()["data"]
                     change_id = change_data["id"]
                     new_order_id = change_data.get("order_id", "")
@@ -949,7 +953,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
                     print(f"DEBUG: Confirming change {change_id} with payment: {payment_amount} {payment_currency}")
                     confirm_resp = _requests.post(confirm_url, json=confirm_payload, headers=duffel_headers)
-                    if confirm_resp.status_code != 200:
+                    if confirm_resp.status_code not in [200, 201]:
                         error_text = confirm_resp.text[:300]
                         print(f"❌ Change confirm failed: {error_text}")
                         send_whatsapp_message(from_number, f"❌ Error al confirmar cambio: {error_text[:200]}")
@@ -1811,6 +1815,8 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                         duffel_headers = {
                             "Authorization": f"Bearer {token}",
                             "Content-Type": "application/json",
+                            "Accept": "application/json",
+                            "Accept-Encoding": "gzip",
                             "Duffel-Version": "v2"
                         }
 
@@ -2623,6 +2629,8 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                         duffel_headers = {
                             "Authorization": f"Bearer {token}",
                             "Content-Type": "application/json",
+                            "Accept": "application/json",
+                            "Accept-Encoding": "gzip",
                             "Duffel-Version": "v2"
                         }
                         order_resp = _requests.get(f"https://api.duffel.com/air/orders/{order_id}", headers=duffel_headers)

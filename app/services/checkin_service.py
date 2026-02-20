@@ -239,6 +239,8 @@ class CheckinService:
             headers = {
                 "Authorization": f"Bearer {self.duffel_token}",
                 "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Accept-Encoding": "gzip",
                 "Duffel-Version": "v2"
             }
 

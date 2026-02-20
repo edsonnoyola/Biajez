@@ -510,6 +510,8 @@ def cancel_trip(pnr: str, db: Session = Depends(get_db)):
         duffel_headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
             "Duffel-Version": "v2"
         }
 
@@ -563,6 +565,8 @@ def get_seat_map(offer_id: str):
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip",
         "Duffel-Version": "v2"
     }
     

@@ -132,6 +132,8 @@ class ItineraryService:
             headers = {
                 "Authorization": f"Bearer {duffel_token}",
                 "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Accept-Encoding": "gzip",
                 "Duffel-Version": "v2"
             }
 
