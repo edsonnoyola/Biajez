@@ -139,11 +139,13 @@ class WebhookService:
         """
         Route event to appropriate handler.
 
-        Duffel event types:
+        Duffel event types (actual names from API):
         - order.created: Order successfully created
         - order.creation_failed: Order creation failed (202 accepted but failed later)
         - order.airline_initiated_change_detected: Airline changed the schedule
-        - order.updated: Order was updated (after change confirmation, etc.)
+        - air.order.changed: Order was updated/changed
+        - order_cancellation.created: Cancellation quote created
+        - order_cancellation.confirmed: Cancellation confirmed
         - payment.created: Payment created for hold order
         - ping.triggered: Test ping from Duffel
         """
@@ -151,9 +153,12 @@ class WebhookService:
 
         handlers = {
             "order.airline_initiated_change_detected": self.handle_airline_change,
-            "order.updated": self.handle_order_updated,
+            "air.order.changed": self.handle_order_updated,
+            "order.updated": self.handle_order_updated,  # Alias for compatibility
             "order.created": self.handle_order_created,
             "order.creation_failed": self.handle_order_creation_failed,
+            "order_cancellation.created": self.handle_cancellation_created,
+            "order_cancellation.confirmed": self.handle_cancellation_confirmed,
             "payment.created": self.handle_payment_created,
             "ping.triggered": self.handle_ping,
         }
@@ -501,6 +506,76 @@ class WebhookService:
             }
 
         return {"order_id": order_id, "status": "acknowledged_no_trip"}
+
+    def handle_cancellation_created(self, event_data: dict) -> dict:
+        """
+        Handle order_cancellation.created - cancellation quote was created.
+        This means someone initiated a cancellation but it's not confirmed yet.
+        """
+        print("🚫 Handling cancellation created (quote)")
+
+        order_id = self._extract_order_id(event_data)
+        if not order_id:
+            return {"error": "No order_id"}
+
+        trip = self._find_trip_by_duffel_order(order_id)
+        if trip:
+            self.create_notification(
+                user_id=trip.user_id,
+                type="cancellation_pending",
+                title="Cancelacion en proceso",
+                message=f"Se inicio la cancelacion de tu vuelo {trip.booking_reference}.",
+                action_required=False,
+                related_order_id=order_id
+            )
+
+        return {"order_id": order_id, "status": "cancellation_quote_created"}
+
+    def handle_cancellation_confirmed(self, event_data: dict) -> dict:
+        """
+        Handle order_cancellation.confirmed - cancellation was finalized.
+        Update trip status and notify user via WhatsApp.
+        """
+        print("🚫 Handling cancellation confirmed")
+
+        order_id = self._extract_order_id(event_data)
+        if not order_id:
+            return {"error": "No order_id"}
+
+        # Extract refund info from the cancellation object
+        cancel_obj = event_data.get("data", {}).get("object", {})
+        refund_amount = cancel_obj.get("refund_amount", "0")
+        refund_currency = cancel_obj.get("refund_currency", "USD")
+
+        trip = self._find_trip_by_duffel_order(order_id)
+        if trip:
+            trip.status = "CANCELLED"
+            if refund_amount:
+                trip.refund_amount = float(refund_amount)
+            self.db.commit()
+
+            # Create notification
+            self.create_notification(
+                user_id=trip.user_id,
+                type="cancellation_confirmed",
+                title="Vuelo cancelado",
+                message=f"Tu vuelo {trip.booking_reference} fue cancelado." +
+                       (f" Reembolso: ${refund_amount} {refund_currency}" if float(refund_amount or 0) > 0 else ""),
+                action_required=False,
+                related_order_id=order_id
+            )
+
+            # Send WhatsApp
+            msg = f"*Vuelo cancelado*\n\nTu vuelo {trip.booking_reference} fue cancelado."
+            if float(refund_amount or 0) > 0:
+                msg += f"\nReembolso: ${refund_amount} {refund_currency}"
+            msg += "\n\nEscribe 'ayuda' si necesitas algo."
+
+            self._send_whatsapp_notification(user_id=trip.user_id, message=msg)
+
+            print(f"✅ Trip {trip.booking_reference} cancelled via webhook")
+
+        return {"order_id": order_id, "status": "cancellation_confirmed", "refund": refund_amount}
 
     def handle_payment_created(self, event_data: dict) -> dict:
         """
