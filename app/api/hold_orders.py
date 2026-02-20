@@ -20,6 +20,8 @@ class PassengerInfo(BaseModel):
     born_on: str
     email: str
     phone_number: str
+    id: Optional[str] = None
+    title: Optional[str] = None
 
 
 class CreateHoldRequest(BaseModel):
@@ -30,8 +32,6 @@ class CreateHoldRequest(BaseModel):
 
 class PayHoldRequest(BaseModel):
     order_id: str
-    currency: str = "USD"
-    amount: str
 
 
 @router.get("/check/{offer_id}")
@@ -46,7 +46,7 @@ async def check_hold_availability(offer_id: str):
 async def create_hold_order(data: CreateHoldRequest):
     """Create a held order (reserve without paying)"""
     service = HoldOrderService()
-    passengers = [p.model_dump() for p in data.passengers]
+    passengers = [p.model_dump(exclude_none=True) for p in data.passengers]
     result = await service.create_hold_order(
         offer_id=data.offer_id,
         passengers=passengers,
@@ -59,27 +59,22 @@ async def create_hold_order(data: CreateHoldRequest):
 
 @router.post("/pay")
 async def pay_held_order(data: PayHoldRequest):
-    """Complete payment for a held order"""
+    """
+    Pay for a held order.
+    Re-fetches latest price from Duffel before paying (per docs).
+    """
     service = HoldOrderService()
-    payment_info = {
-        "currency": data.currency,
-        "amount": data.amount
-    }
-    result = await service.pay_held_order(data.order_id, payment_info)
+    result = await service.pay_held_order(data.order_id)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error"))
     return result
 
 
-@router.get("/user/{user_id}")
-def get_user_held_orders(user_id: str, db: Session = Depends(get_db)):
-    """Get user's held orders that need payment"""
-    import asyncio
+@router.get("/status/{order_id}")
+async def get_hold_status(order_id: str):
+    """Get current status of a held order (price, deadline, awaiting_payment)"""
     service = HoldOrderService()
-    # Run async function in sync context
-    loop = asyncio.new_event_loop()
-    try:
-        result = loop.run_until_complete(service.get_held_orders(user_id, db))
-        return {"held_orders": result}
-    finally:
-        loop.close()
+    result = await service.get_order_status(order_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return result

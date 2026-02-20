@@ -558,13 +558,14 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 *BUSCAR Y RESERVAR*
 • vuelo MEX a MAD 15 marzo
 • hotel en Madrid del 15 al 18
-• reservar sin pagar _(apartar 24h)_
+• apartar vuelo _(reservar sin pagar)_
+• pagar _(completar pago pendiente)_
 
 *MIS VIAJES*
 • itinerario _(próximo viaje)_
 • historial _(viajes pasados)_
-• cancelar [PNR]
-• reembolso
+• cancelar vuelo
+• cambiar vuelo
 
 *EXTRAS DE VUELO*
 • equipaje _(agregar maletas)_
@@ -2719,8 +2720,175 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             send_whatsapp_message(from_number, response)
             return {"status": "ok"}
 
-        # RESERVAR SIN PAGAR / HOLD
-        if any(kw in msg_lower for kw in ['reservar sin pagar', 'hold', 'apartar vuelo', 'guardar vuelo', 'pagar despues']):
+        # CONFIRMAR HOLD - Create held order after user confirmed
+        if msg_lower.strip() in ['confirmar hold', 'confirmar reserva sin pagar', 'si hold'] and session.get("pending_hold"):
+            from app.services.hold_order_service import HoldOrderService
+
+            hold_service = HoldOrderService()
+            selected = session.get("selected_flight", {})
+            offer_id = selected.get("offer_id")
+
+            if not offer_id:
+                send_whatsapp_message(from_number, "❌ No hay vuelo seleccionado. Busca un vuelo primero.")
+                session.pop("pending_hold", None)
+                session_manager.save_session(from_number, session)
+                return {"status": "ok"}
+
+            # Build passenger from profile (same as booking flow)
+            user_id = session.get("user_id", f"whatsapp_{from_number}")
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                row = conn.execute(
+                    text("SELECT user_id, legal_first_name, legal_last_name, email, dob, gender, phone_number FROM profiles WHERE user_id = :uid"),
+                    {"uid": user_id}
+                ).fetchone()
+
+            if not row or not row[1] or not row[4]:
+                send_whatsapp_message(from_number, "❌ Perfil incompleto. Escribe 'registrar' para completar tus datos.")
+                session.pop("pending_hold", None)
+                session_manager.save_session(from_number, session)
+                return {"status": "ok"}
+
+            # Get passenger_id from offer
+            passenger_id = selected.get("passenger_id") or selected.get("metadata", {}).get("passenger_id", "")
+
+            passengers = [{
+                "id": passenger_id,
+                "type": "adult",
+                "given_name": row[1],
+                "family_name": row[2] or row[1],
+                "email": row[3] or f"{from_number}@whatsapp.temp",
+                "born_on": str(row[4]),
+                "gender": "m" if str(row[5]).lower() in ['m', 'male', 'masculino'] else "f",
+                "phone_number": f"+{row[6] or from_number}",
+                "title": "mr" if str(row[5]).lower() in ['m', 'male', 'masculino'] else "ms"
+            }]
+
+            result = await hold_service.create_hold_order(offer_id, passengers)
+
+            if result.get("success"):
+                # Save held order in session
+                session["held_order"] = {
+                    "order_id": result["order_id"],
+                    "pnr": result.get("booking_reference"),
+                    "amount": result.get("total_amount"),
+                    "currency": result.get("total_currency"),
+                    "payment_required_by": result.get("payment_required_by"),
+                }
+
+                # Save to DB as PENDING trip
+                try:
+                    segments = selected.get("segments", [])
+                    dep_city = segments[0].get("departure_iata", "") if segments else ""
+                    arr_city = segments[-1].get("arrival_iata", "") if segments else ""
+                    dep_date = segments[0].get("departure_time", "")[:10] if segments else ""
+
+                    with engine.connect() as conn:
+                        conn.execute(text(
+                            "INSERT INTO trips (booking_reference, user_id, status, departure_city, arrival_city, "
+                            "departure_date, total_amount, duffel_order_id) VALUES (:pnr, :uid, 'PENDING', :dep, :arr, :date, :amt, :oid)"
+                        ), {
+                            "pnr": result.get("booking_reference", ""),
+                            "uid": user_id,
+                            "dep": dep_city,
+                            "arr": arr_city,
+                            "date": dep_date,
+                            "amt": float(result.get("total_amount", 0)),
+                            "oid": result["order_id"]
+                        })
+                        conn.commit()
+                except Exception as db_err:
+                    print(f"⚠️ Hold trip DB save failed (non-critical): {db_err}")
+
+                response = hold_service.format_hold_for_whatsapp(result)
+            else:
+                response = f"❌ {result.get('error', 'No se pudo apartar el vuelo')}"
+
+            session.pop("pending_hold", None)
+            session.pop("selected_flight", None)
+            session.pop("pending_flights", None)
+            session_manager.save_session(from_number, session)
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # PAGAR - Pay for a held order
+        if msg_lower.strip() in ['pagar', 'pagar vuelo', 'pagar reserva', 'completar pago']:
+            from app.services.hold_order_service import HoldOrderService
+
+            hold_service = HoldOrderService()
+            held = session.get("held_order", {})
+            order_id = held.get("order_id")
+
+            if not order_id:
+                # Try to find held order from DB
+                user_id = session.get("user_id", f"whatsapp_{from_number}")
+                from sqlalchemy import text
+                try:
+                    with engine.connect() as conn:
+                        row = conn.execute(
+                            text("SELECT duffel_order_id, booking_reference, total_amount FROM trips WHERE user_id = :uid AND status = 'PENDING' ORDER BY id DESC LIMIT 1"),
+                            {"uid": user_id}
+                        ).fetchone()
+                        if row:
+                            order_id = row[0]
+                            held = {"order_id": row[0], "pnr": row[1], "amount": row[2]}
+                except Exception:
+                    pass
+
+            if not order_id:
+                send_whatsapp_message(from_number, "No tienes reservas pendientes de pago.\n\nBusca un vuelo y usa 'reservar sin pagar' para apartar.")
+                return {"status": "ok"}
+
+            send_whatsapp_message(from_number, "💳 Procesando pago...")
+
+            result = await hold_service.pay_held_order(order_id)
+
+            if result.get("success"):
+                # Update trip status to CONFIRMED
+                try:
+                    with engine.connect() as conn:
+                        conn.execute(
+                            text("UPDATE trips SET status = 'CONFIRMED' WHERE duffel_order_id = :oid"),
+                            {"oid": order_id}
+                        )
+                        conn.commit()
+                except Exception as db_err:
+                    print(f"⚠️ Trip status update failed: {db_err}")
+
+                # Save as last_booking for post-booking flows
+                session["last_booking"] = {
+                    "duffel_order_id": order_id,
+                    "pnr": result.get("booking_reference", held.get("pnr", "")),
+                }
+                session.pop("held_order", None)
+                session_manager.save_session(from_number, session)
+
+                response = hold_service.format_payment_for_whatsapp(result)
+
+                # Send email + WhatsApp notification
+                try:
+                    from app.services.push_notification_service import PushNotificationService
+                    push_svc = PushNotificationService()
+                    pnr = result.get("booking_reference", "")
+                    amount = float(result.get("amount_paid", 0))
+                    currency = result.get("currency", "USD")
+                    import asyncio
+                    asyncio.ensure_future(push_svc.send_booking_confirmation(
+                        from_number, pnr, held.get("route", ""), "", amount, currency
+                    ))
+                except Exception:
+                    pass
+            else:
+                if result.get("price_changed"):
+                    response = "⚠️ El precio cambio desde que apartaste el vuelo.\n\nIntenta de nuevo con 'pagar'."
+                else:
+                    response = f"❌ {result.get('error', 'Error de pago')}"
+
+            send_whatsapp_message(from_number, response)
+            return {"status": "ok"}
+
+        # RESERVAR SIN PAGAR / HOLD - Check if offer is holdable
+        if any(kw in msg_lower for kw in ['reservar sin pagar', 'apartar vuelo', 'guardar vuelo', 'apartar']):
             from app.services.hold_order_service import HoldOrderService
 
             hold_service = HoldOrderService()
@@ -2728,23 +2896,28 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             if session.get("selected_flight"):
                 offer_id = session["selected_flight"].get("offer_id")
                 if offer_id:
-                    # Check if hold is available
                     hold_check = await hold_service.check_hold_availability(offer_id)
 
                     if hold_check.get("available"):
-                        response = f"✅ *Este vuelo permite reservar sin pagar*\n\n"
-                        response += f"Tienes hasta {hold_check.get('hold_hours', 24)} horas para pagar.\n\n"
-                        response += "¿Quieres reservar ahora y pagar después?\n\n"
-                        response += "Responde 'confirmar hold' para continuar."
+                        hours = hold_check.get('hold_hours', 24)
+                        has_guarantee = hold_check.get('has_price_guarantee', False)
+
+                        response = f"✅ *Este vuelo permite apartar sin pagar*\n\n"
+                        response += f"Tienes hasta *{hours} horas* para pagar.\n"
+                        if has_guarantee:
+                            response += "El precio esta garantizado.\n\n"
+                        else:
+                            response += "⚠️ El precio puede cambiar antes de pagar.\n\n"
+                        response += "Responde *confirmar hold* para apartar."
 
                         session["pending_hold"] = True
                         session_manager.save_session(from_number, session)
                     else:
-                        response = f"❌ {hold_check.get('message', 'Este vuelo no permite reservar sin pagar.')}"
+                        response = f"❌ {hold_check.get('message', 'Este vuelo requiere pago inmediato.')}"
                 else:
                     response = "No pude verificar el vuelo seleccionado."
             else:
-                response = "*Reservar sin pagar*\n\nPrimero selecciona un vuelo para verificar si permite reservar sin pagar."
+                response = "Primero selecciona un vuelo para apartar.\n\nBusca un vuelo y elige uno con numero."
 
             send_whatsapp_message(from_number, response)
             return {"status": "ok"}
