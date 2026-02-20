@@ -269,6 +269,81 @@ class OrderChangeService:
             except Exception as db_err:
                 print(f"⚠️ DB update after change failed: {db_err}")
 
+            # 6. Send change confirmation email + WhatsApp
+            try:
+                from app.models.models import Profile
+                profile = self.db.query(Profile).filter(Profile.user_id == user_id).first()
+                trip = self.db.query(Trip).filter(Trip.duffel_order_id == order_id).first()
+
+                if profile:
+                    passenger_name = f"{profile.legal_first_name} {profile.legal_last_name}"
+                    pnr = trip.booking_reference if trip else "N/A"
+                    old_route = f"{trip.departure_city or '?'} → {trip.arrival_city or '?'}" if trip else "N/A"
+
+                    # Extract new segments from confirmed change
+                    new_segments = []
+                    if isinstance(confirmed_slices, dict):
+                        for aslice in confirmed_slices.get("add", []):
+                            for seg in aslice.get("segments", []):
+                                new_segments.append({
+                                    "origin": seg.get("origin", {}).get("iata_code", "?"),
+                                    "destination": seg.get("destination", {}).get("iata_code", "?"),
+                                    "departing_at": seg.get("departing_at", ""),
+                                    "arriving_at": seg.get("arriving_at", ""),
+                                    "carrier": seg.get("operating_carrier", {}).get("name", ""),
+                                })
+
+                    new_route_parts = []
+                    for ns in new_segments:
+                        new_route_parts.append(f"{ns['origin']} → {ns['destination']}")
+                    new_route = ", ".join(new_route_parts) if new_route_parts else old_route
+
+                    # Send email
+                    if profile.email and "@whatsapp.temp" not in profile.email:
+                        from app.services.email_service import EmailService
+                        EmailService.send_change_confirmation_email(profile.email, {
+                            "pnr": pnr,
+                            "passenger_name": passenger_name,
+                            "old_route": old_route,
+                            "new_route": new_route,
+                            "new_departure_date": new_dep_date or "N/A",
+                            "change_fee": offer.get("change_total_amount", "0"),
+                            "new_total": offer.get("new_total_amount", "0"),
+                            "currency": offer.get("new_total_currency", "USD"),
+                            "new_segments": new_segments,
+                        })
+                        print(f"📧 Change confirmation email sent to {profile.email}")
+
+                    # Send WhatsApp
+                    if profile.phone_number:
+                        from app.services.push_notification_service import PushNotificationService
+                        import asyncio
+                        push_svc = PushNotificationService()
+                        msg = (
+                            f"*Cambio de vuelo confirmado*\n\n"
+                            f"PNR: {pnr}\n"
+                            f"Nueva ruta: {new_route}\n"
+                            f"Fecha: {new_dep_date or 'Ver itinerario'}\n"
+                            f"Nuevo total: ${offer.get('new_total_amount', '0')} {offer.get('new_total_currency', 'USD')}\n\n"
+                            f"Escribe 'itinerario' para ver detalles."
+                        )
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                asyncio.ensure_future(push_svc.send_message(profile.phone_number, msg))
+                            else:
+                                loop.run_until_complete(push_svc.send_message(profile.phone_number, msg))
+                        except RuntimeError:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            try:
+                                loop.run_until_complete(push_svc.send_message(profile.phone_number, msg))
+                            finally:
+                                loop.close()
+                        print(f"📱 WhatsApp change confirmation sent to {profile.phone_number}")
+            except Exception as notif_err:
+                print(f"⚠️ Error enviando notificacion de cambio (no critico): {notif_err}")
+
             return {
                 "status": "confirmed",
                 "order_change_id": confirmed_change["id"],

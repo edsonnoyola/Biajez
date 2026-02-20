@@ -139,6 +139,66 @@ class OrderManager:
                 except Exception as credit_err:
                     print(f"⚠️ Could not create airline credit: {credit_err}")
 
+            # 6. Send cancellation email
+            try:
+                from app.services.email_service import EmailService
+                from app.models.models import Profile
+                profile = self.db.query(Profile).filter(Profile.user_id == user_id).first()
+                if profile and profile.email and "@whatsapp.temp" not in profile.email:
+                    # Get trip details for email
+                    with engine.connect() as conn:
+                        trip_row = conn.execute(
+                            text("SELECT departure_city, arrival_city FROM trips WHERE booking_reference = :pnr"),
+                            {"pnr": pnr}
+                        ).fetchone()
+                    dep_city = trip_row[0] if trip_row else "?"
+                    arr_city = trip_row[1] if trip_row else "?"
+
+                    EmailService.send_cancellation_email(profile.email, {
+                        "pnr": pnr,
+                        "passenger_name": f"{profile.legal_first_name} {profile.legal_last_name}",
+                        "route": f"{dep_city} → {arr_city}",
+                        "refund_amount": refund_amount,
+                        "currency": confirmed.get("refund_currency", "USD"),
+                        "credit_amount": refund_amount if credit_id else 0,
+                    })
+                    print(f"📧 Cancellation email sent to {profile.email}")
+            except Exception as email_err:
+                print(f"⚠️ Error enviando email cancelacion (no critico): {email_err}")
+
+            # 7. Send WhatsApp cancellation notification
+            try:
+                from app.services.push_notification_service import PushNotificationService
+                from app.models.models import Profile
+                import asyncio
+                profile = self.db.query(Profile).filter(Profile.user_id == user_id).first()
+                if profile and profile.phone_number:
+                    push_svc = PushNotificationService()
+                    msg = (
+                        f"*Vuelo cancelado*\n\n"
+                        f"PNR: {pnr}\n"
+                        f"Reembolso: ${refund_amount:.2f} {confirmed.get('refund_currency', 'USD')}\n\n"
+                    )
+                    if credit_id:
+                        msg += f"Se genero un credito de aerolinea por ${refund_amount:.2f}.\n"
+                        msg += "Escribe 'creditos' para ver tu saldo."
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.ensure_future(push_svc.send_message(profile.phone_number, msg))
+                        else:
+                            loop.run_until_complete(push_svc.send_message(profile.phone_number, msg))
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(push_svc.send_message(profile.phone_number, msg))
+                        finally:
+                            loop.close()
+                    print(f"📱 WhatsApp cancelacion enviado a {profile.phone_number}")
+            except Exception as wa_err:
+                print(f"⚠️ Error enviando WhatsApp cancelacion (no critico): {wa_err}")
+
             return {
                 "status": "cancelled",
                 "order_id": order_id,

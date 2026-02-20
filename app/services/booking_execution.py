@@ -532,23 +532,74 @@ class BookingOrchestrator:
                 amount
             )
 
-            # Send email confirmation
+            # Send email confirmation (rich template with segments, airline, eTicket)
             try:
                 from app.services.email_service import EmailService
+                passenger_name = f"{profile.legal_first_name} {profile.legal_last_name}"
+
+                # Extract airline name from first segment
+                airline_name = ""
+                if flight_segments:
+                    carrier_code = flight_segments[0].get("carrier_code", "")
+                    # Try to get full airline name from order
+                    for sl in order_data.get("slices", []):
+                        for seg in sl.get("segments", []):
+                            op_carrier = seg.get("operating_carrier", {})
+                            if op_carrier.get("name"):
+                                airline_name = op_carrier["name"]
+                                break
+                        if airline_name:
+                            break
+
                 email_data = {
                     "pnr": pnr,
                     "departure_city": departure_city or "N/A",
                     "arrival_city": arrival_city or "N/A",
                     "departure_date": str(departure_date) if departure_date else "N/A",
-                    "passenger_name": f"{profile.legal_first_name} {profile.legal_last_name}",
-                    "total_amount": str(amount),
-                    "currency": "USD"
+                    "passenger_name": passenger_name,
+                    "total_amount": str(duffel_amount),
+                    "currency": duffel_currency or "USD",
+                    "airline_name": airline_name,
+                    "eticket_number": eticket_str or "",
+                    "segments": flight_segments,  # Rich segment data for email template
                 }
                 if profile.email and "@whatsapp.temp" not in profile.email:
                     EmailService.send_booking_confirmation(profile.email, email_data, "flight")
                     print(f"📧 Email enviado a {profile.email}")
             except Exception as email_error:
-                print(f"⚠️ Error enviando email (no crítico): {email_error}")
+                print(f"⚠️ Error enviando email (no critico): {email_error}")
+
+            # Send WhatsApp booking confirmation
+            try:
+                from app.services.push_notification_service import PushNotificationService
+                import asyncio
+                if profile.phone_number:
+                    push_svc = PushNotificationService()
+                    route = f"{departure_city or '?'} → {arrival_city or '?'}"
+                    dep_str = str(departure_date) if departure_date else "Pendiente"
+
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.ensure_future(push_svc.send_booking_confirmation(
+                                profile.phone_number, pnr, route, dep_str, float(duffel_amount), duffel_currency or "USD"
+                            ))
+                        else:
+                            loop.run_until_complete(push_svc.send_booking_confirmation(
+                                profile.phone_number, pnr, route, dep_str, float(duffel_amount), duffel_currency or "USD"
+                            ))
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(push_svc.send_booking_confirmation(
+                                profile.phone_number, pnr, route, dep_str, float(duffel_amount), duffel_currency or "USD"
+                            ))
+                        finally:
+                            loop.close()
+                    print(f"📱 WhatsApp confirmacion enviado a {profile.phone_number}")
+            except Exception as wa_error:
+                print(f"⚠️ Error enviando WhatsApp (no critico): {wa_error}")
 
             return {"pnr": pnr, "ticket_number": ticket_number, "ticket_url": ticket_url,
                     "eticket_number": eticket_str, "duffel_order_id": ticket_number,

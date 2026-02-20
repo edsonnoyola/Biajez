@@ -317,6 +317,9 @@ class WebhookService:
             message=self._format_airline_change_message(trip, change_details)
         )
 
+        # Send email alert for airline-initiated change
+        self._send_airline_change_email(trip, change_details)
+
         return {
             "order_id": order_id,
             "pnr": trip.booking_reference,
@@ -573,6 +576,9 @@ class WebhookService:
 
             self._send_whatsapp_notification(user_id=trip.user_id, message=msg)
 
+            # Send cancellation email
+            self._send_cancellation_email(trip, float(refund_amount or 0), refund_currency)
+
             print(f"✅ Trip {trip.booking_reference} cancelled via webhook")
 
         return {"order_id": order_id, "status": "cancellation_confirmed", "refund": refund_amount}
@@ -593,6 +599,56 @@ class WebhookService:
         """
         print("🏓 Ping received from Duffel")
         return {"status": "pong"}
+
+    def _send_airline_change_email(self, trip: Trip, change_details: list) -> None:
+        """Send email alert when airline makes changes to a flight."""
+        try:
+            from app.models.models import Profile
+            from app.services.email_service import EmailService
+
+            profile = self.db.query(Profile).filter(Profile.user_id == trip.user_id).first()
+            if not profile or not profile.email or "@whatsapp.temp" in profile.email:
+                return
+
+            passenger_name = f"{profile.legal_first_name} {profile.legal_last_name}"
+            EmailService.send_airline_change_alert_email(profile.email, {
+                "pnr": trip.booking_reference,
+                "passenger_name": passenger_name,
+                "old_details": {
+                    "departure_city": trip.departure_city,
+                    "arrival_city": trip.arrival_city,
+                    "departure_date": str(trip.departure_date) if trip.departure_date else "N/A",
+                },
+                "new_segments": change_details,
+            })
+            print(f"📧 Airline change alert email sent to {profile.email}")
+        except Exception as e:
+            print(f"⚠️ Error sending airline change email: {e}")
+
+    def _send_cancellation_email(self, trip: Trip, refund_amount: float, refund_currency: str) -> None:
+        """Send email when a flight is cancelled via webhook."""
+        try:
+            from app.models.models import Profile
+            from app.services.email_service import EmailService
+
+            profile = self.db.query(Profile).filter(Profile.user_id == trip.user_id).first()
+            if not profile or not profile.email or "@whatsapp.temp" in profile.email:
+                return
+
+            passenger_name = f"{profile.legal_first_name} {profile.legal_last_name}"
+            route = f"{trip.departure_city or '?'} → {trip.arrival_city or '?'}"
+
+            EmailService.send_cancellation_email(profile.email, {
+                "pnr": trip.booking_reference,
+                "passenger_name": passenger_name,
+                "route": route,
+                "refund_amount": refund_amount,
+                "currency": refund_currency,
+                "credit_amount": 0,
+            })
+            print(f"📧 Cancellation email sent to {profile.email}")
+        except Exception as e:
+            print(f"⚠️ Error sending cancellation email: {e}")
 
     def _format_airline_change_message(self, trip: Trip, change_details: list) -> str:
         """Format a WhatsApp message for airline-initiated changes in Spanish."""

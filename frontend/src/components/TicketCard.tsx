@@ -1,5 +1,6 @@
 import React from 'react';
 import { Plane } from 'lucide-react';
+import API_URL from '../config/api';
 
 interface TicketCardProps {
     pnr: string;
@@ -82,7 +83,7 @@ export const TicketCard: React.FC<TicketCardProps> = ({ pnr, passengerName, flig
                 {/* Download Ticket Button */}
                 {ticketUrl && (
                     <a
-                        href={`http://localhost:8000${ticketUrl}`}
+                        href={`${API_URL}${ticketUrl}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="mt-4 w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm transition-colors flex items-center justify-center gap-2"
