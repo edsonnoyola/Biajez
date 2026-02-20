@@ -13,8 +13,12 @@ if os.getenv('DUFFEL_ACCESS_TOKEN'):
     print(f"   DUFFEL token: configured (last4: ...{os.getenv('DUFFEL_ACCESS_TOKEN')[-4:]})")
 print("=" * 50)
 
-from fastapi import FastAPI, Header, Depends as _Depends, HTTPException as _HTTPException
+from fastapi import FastAPI, Header, Depends as _Depends, HTTPException as _HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from contextlib import asynccontextmanager
 from app.models import models
 from app.db.database import engine
@@ -254,6 +258,39 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# --- Rate Limiting (SlowAPI) ---
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+app.state.limiter = limiter
+
+@app.exception_handler(RateLimitExceeded)
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return Response(content="Too many requests", status_code=429)
+
+# --- Security Headers Middleware ---
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# --- Request Body Size Limit (10 MB) ---
+_MAX_BODY_SIZE = 10 * 1024 * 1024  # 10 MB
+
+class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > _MAX_BODY_SIZE:
+            return Response(content="Request body too large", status_code=413)
+        return await call_next(request)
+
+app.add_middleware(BodySizeLimitMiddleware)
+
 # CORS Configuration
 _cors_origins = os.getenv("CORS_ORIGINS", "").split(",") if os.getenv("CORS_ORIGINS") else []
 app.add_middleware(
@@ -285,14 +322,16 @@ app.include_router(order_endpoints.router)
 
 
 @app.get("/")
-def read_root():
+@limiter.limit("30/minute")
+def read_root(request: Request):
     return {"message": "Welcome to Biatriz API"}
 
 
 @app.get("/health")
-def health_check():
+@limiter.limit("30/minute")
+def health_check(request: Request):
     """Health check endpoint for keep-alive pings"""
-    return {"status": "ok", "service": "biajez", "version": "2026-02-09a"}
+    return {"status": "ok"}
 
 
 import hashlib as _hashlib
@@ -303,7 +342,8 @@ def _ticket_token(pnr: str) -> str:
     return _hashlib.sha256(f"{secret}:{pnr}".encode()).hexdigest()[:16]
 
 @app.get("/ticket/{pnr}")
-def get_ticket(pnr: str, t: str = None):
+@limiter.limit("20/minute")
+def get_ticket(request: Request, pnr: str, t: str = None):
     """Serve ticket HTML by PNR - requires valid token to prevent enumeration"""
     from fastapi.responses import HTMLResponse
     from app.services.ticket_generator import TICKET_STORE, _load_ticket_from_db
