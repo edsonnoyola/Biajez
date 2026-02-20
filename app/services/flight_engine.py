@@ -23,16 +23,16 @@ def load_cache():
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, 'r') as f:
                 return json.load(f)
-    except:
-        pass
+    except Exception as e:
+        print(f"⚠️ Cache load failed: {e}")
     return {}
 
 def save_cache(cache):
     try:
         with open(CACHE_FILE, 'w') as f:
             json.dump(cache, f)
-    except:
-        pass
+    except Exception as e:
+        print(f"⚠️ Cache save failed: {e}")
 
 OFFER_CACHE = load_cache()
 

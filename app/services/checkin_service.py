@@ -162,7 +162,12 @@ class CheckinService:
         for checkin in pending:
             try:
                 checkin.status = CheckinStatusEnum.IN_PROGRESS
-                self.db.commit()
+                try:
+                    self.db.commit()
+                except Exception as commit_err:
+                    self.db.rollback()
+                    print(f"⚠️ Checkin status commit failed: {commit_err}")
+                    continue
 
                 result = await self._execute_checkin(checkin)
 
@@ -197,7 +202,11 @@ class CheckinService:
                 checkin.status = CheckinStatusEnum.FAILED
                 checkin.error_message = str(e)
 
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception as final_err:
+            self.db.rollback()
+            print(f"🚨 Checkin batch commit failed: {final_err}")
 
         return {
             "processed": processed,
@@ -336,7 +345,11 @@ class CheckinService:
         )
 
         self.db.add(notification)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception as notif_err:
+            self.db.rollback()
+            print(f"⚠️ Checkin success notification commit failed: {notif_err}")
 
         # Send WhatsApp with check-in link
         profile = self.db.query(Profile).filter(Profile.user_id == checkin.user_id).first()
@@ -365,7 +378,11 @@ class CheckinService:
         )
 
         self.db.add(notification)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception as notif_err:
+            self.db.rollback()
+            print(f"⚠️ Checkin failure notification commit failed: {notif_err}")
 
         print(f"❌ Check-in failed for {checkin.pnr}: {error}")
 

@@ -71,8 +71,8 @@ class SchedulerService:
                     loop.run_until_complete(push_svc.send_message(admin_phone, msg))
             except RuntimeError:
                 pass
-        except Exception:
-            pass  # Alert is best-effort
+        except Exception as alert_err:
+            print(f"⚠️ Failed to send scheduler alert: {alert_err}")
 
     def start(self):
         """Start the scheduler and register all jobs"""

@@ -319,8 +319,8 @@ class DuffelCircuitBreaker:
             data = redis_client.get(self._redis_key)
             if data:
                 return json.loads(data)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ Circuit breaker Redis read failed: {e}")
         return {"state": self.CLOSED, "failures": 0, "last_failure": 0.0}
 
     def _save_state_to_redis(self, redis_client, state: str, failures: int, last_failure: float):
@@ -331,8 +331,8 @@ class DuffelCircuitBreaker:
                 self.recovery_timeout * 3,  # TTL = 3x recovery so it auto-clears
                 json.dumps({"state": state, "failures": failures, "last_failure": last_failure})
             )
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ Circuit breaker Redis save failed: {e}")
 
     def can_request(self, redis_client=None) -> bool:
         """Check if a request is allowed through the circuit breaker"""

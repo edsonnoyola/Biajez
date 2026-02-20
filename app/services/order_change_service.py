@@ -262,7 +262,8 @@ class OrderChangeService:
                         update_params["penalty"] = confirmed_penalty
                         update_params["oid"] = order_id
                         _conn.execute(_text(update_sql_full), update_params)
-                    except Exception:
+                    except Exception as col_err:
+                        print(f"⚠️ DB update with penalty columns failed ({col_err}), retrying without them")
                         _conn.rollback()
                         update_sql += " WHERE user_id = :uid AND duffel_order_id = :oid"
                         update_params["oid"] = order_id

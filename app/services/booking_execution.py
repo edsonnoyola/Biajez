@@ -636,8 +636,8 @@ class BookingOrchestrator:
                                 _loop.run_until_complete(_push.send_message(admin_phone, _alert))
                         except RuntimeError:
                             pass
-                except Exception:
-                    pass  # Alert is best-effort, Redis backup already has the data
+                except Exception as alert_err:
+                    print(f"⚠️ Failed to send DB save failure alert: {alert_err}")
 
             # Generate HTML Ticket with REAL Duffel data
             from app.services.ticket_generator import TicketGenerator

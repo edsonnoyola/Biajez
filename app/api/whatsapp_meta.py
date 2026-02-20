@@ -216,8 +216,8 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 # 24h TTL — Meta can retry webhooks for hours after initial delivery
                 was_set = session_manager.redis_client.set(dedup_key, "1", nx=True, ex=86400)
                 is_duplicate = not was_set
-            except Exception:
-                pass  # Redis down — fall through to in-memory
+            except Exception as dedup_err:
+                print(f"⚠️ Redis dedup failed, using in-memory: {dedup_err}")
         if not is_duplicate:
             # In-memory fallback
             if not hasattr(whatsapp_webhook, '_processed_messages'):
@@ -1715,8 +1715,10 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
             if session_manager.enabled:
                 try:
                     lock_acquired = session_manager.redis_client.set(booking_lock_key, "1", nx=True, ex=120)  # 2 min TTL
-                except Exception:
-                    lock_acquired = True  # Fail open if Redis is down
+                except Exception as lock_err:
+                    # Fail CLOSED — reject booking if we can't verify lock (prevents double-booking)
+                    print(f"🚨 Redis lock unavailable: {lock_err}")
+                    lock_acquired = False
             else:
                 lock_acquired = not session.get("booking_in_progress")
 

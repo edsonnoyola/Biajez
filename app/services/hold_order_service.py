@@ -61,8 +61,9 @@ class HoldOrderService:
                         hours_remaining = (expires - now).total_seconds() / 3600
                         hold_hours = max(1, int(hours_remaining))
                         deadline_str = expires.strftime('%d/%m/%Y %H:%M')
-                    except Exception:
-                        pass
+                    except Exception as dt_err:
+                        print(f"⚠️ Hold order date parse error: {dt_err} (raw: {payment_required_by})")
+                        hold_hours = 24  # Safe default
 
                 has_price_guarantee = price_guarantee is not None
 
