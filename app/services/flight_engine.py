@@ -214,6 +214,16 @@ class FlightAggregator:
                 # Mark that no flights from requested airline were found
                 # The AI should inform the user
 
+        # GLOBAL FILTER: Only show flights that can be changed OR cancelled
+        # Any airline is fine, but must be flexible (user requirement)
+        flexible = [f for f in all_flights if
+            (f.metadata and f.metadata.get("changeable")) or f.refundable]
+        if flexible:
+            print(f"DEBUG: Filtered to {len(flexible)} flexible flights (changeable or refundable) from {len(all_flights)} total")
+            all_flights = flexible
+        else:
+            print("WARNING: No flexible flights found at all — showing all results as fallback")
+
         # Sort by score (highest first)
         all_flights.sort(key=lambda f: f.score, reverse=True)
 
@@ -222,7 +232,9 @@ class FlightAggregator:
             segments = len(flight.segments)
             carrier = flight.segments[0].carrier_code if flight.segments else "?"
             dep_time = flight.segments[0].departure_time.strftime("%H:%M") if flight.segments else "?"
-            print(f"DEBUG: Rank {i+1}: {carrier} {dep_time} - Score={flight.score}, Segments={segments}, Price=${flight.price}")
+            changeable = "✅" if (flight.metadata or {}).get("changeable") else "❌"
+            refundable = "✅" if flight.refundable else "❌"
+            print(f"DEBUG: Rank {i+1}: {carrier} {dep_time} - Score={flight.score}, Price=${flight.price}, Change={changeable}, Refund={refundable}")
 
         return all_flights[:30]  # Return top 30
 
@@ -479,13 +491,20 @@ class FlightAggregator:
                     }
                 ))
             
-            # RULE: Only show changeable flights
-            changeable_flights = [f for f in flights if f.metadata and f.metadata.get("changeable")]
-            if changeable_flights:
-                print(f"DEBUG: Filtered to {len(changeable_flights)} changeable flights (from {len(flights)} total)")
-                flights = changeable_flights
+            # RULE: Only show flights that are both changeable AND refundable (cancellable)
+            flexible_flights = [f for f in flights if
+                f.metadata and f.metadata.get("changeable") and f.refundable]
+            if flexible_flights:
+                print(f"DEBUG: Filtered to {len(flexible_flights)} flexible (changeable+refundable) flights (from {len(flights)} total)")
+                flights = flexible_flights
             else:
-                print("WARNING: No changeable flights found, returning all results")
+                # Fallback: at least changeable
+                changeable_flights = [f for f in flights if f.metadata and f.metadata.get("changeable")]
+                if changeable_flights:
+                    print(f"DEBUG: No fully flexible flights, using {len(changeable_flights)} changeable flights")
+                    flights = changeable_flights
+                else:
+                    print("WARNING: No changeable/refundable flights found, returning all results")
 
             print(f"DEBUG: Returning {len(flights)} flights from Duffel")
             return flights
