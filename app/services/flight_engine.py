@@ -416,6 +416,13 @@ class FlightAggregator:
             print(f"DEBUG: Duffel request payload: {json.dumps(payload, indent=2)}")
 
             def _duffel_search_with_retry():
+                from app.services.whatsapp_redis import duffel_breaker, session_manager
+                redis_client = session_manager.redis_client if session_manager.enabled else None
+
+                if not duffel_breaker.can_request(redis_client):
+                    print("🔴 Circuit breaker OPEN — skipping Duffel search")
+                    return None
+
                 for attempt in range(3):
                     try:
                         resp = requests.post(url, json=payload, headers=headers, timeout=25)
@@ -424,8 +431,13 @@ class FlightAggregator:
                             print(f"⚠️ Duffel search {resp.status_code}, retrying in {wait}s")
                             time.sleep(wait)
                             continue
+                        if resp.status_code in (429, 500, 502, 503, 504):
+                            duffel_breaker.record_failure(redis_client)
+                        else:
+                            duffel_breaker.record_success(redis_client)
                         return resp
                     except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                        duffel_breaker.record_failure(redis_client)
                         if attempt < 2:
                             print(f"⚠️ Duffel search network error, retrying: {e}")
                             time.sleep((attempt + 1) * 2)

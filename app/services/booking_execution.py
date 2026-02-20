@@ -12,7 +12,15 @@ import requests as _requests
 
 
 def _duffel_request_with_retry(method, url, headers, max_retries=2, **kwargs):
-    """Make a Duffel API request with retry on transient failures (429, 500, 502, 503, 504)."""
+    """Make a Duffel API request with retry on transient failures (429, 500, 502, 503, 504).
+    Integrates with circuit breaker to stop requests when Duffel is down."""
+    from app.services.whatsapp_redis import duffel_breaker, session_manager
+    redis_client = session_manager.redis_client if session_manager.enabled else None
+
+    # Circuit breaker check
+    if not duffel_breaker.can_request(redis_client):
+        raise Exception("Duffel API no disponible temporalmente. Intenta en 1 minuto.")
+
     last_exc = None
     for attempt in range(max_retries + 1):
         try:
@@ -28,9 +36,16 @@ def _duffel_request_with_retry(method, url, headers, max_retries=2, **kwargs):
                 time.sleep(wait)
                 continue
 
+            # Record result in circuit breaker
+            if resp.status_code in (429, 500, 502, 503, 504):
+                duffel_breaker.record_failure(redis_client)
+            else:
+                duffel_breaker.record_success(redis_client)
+
             return resp
         except (_requests.exceptions.Timeout, _requests.exceptions.ConnectionError) as e:
             last_exc = e
+            duffel_breaker.record_failure(redis_client)
             if attempt < max_retries:
                 wait = (attempt + 1) * 2
                 print(f"⚠️ Duffel network error, retrying in {wait}s: {e}")

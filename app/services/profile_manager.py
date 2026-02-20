@@ -9,8 +9,8 @@ import uuid
 
 
 def normalize_phone(phone: str) -> str:
-    """Normalize Mexican phone number to 52 + 10 digits"""
-    phone = phone.replace("+", "").replace(" ", "").strip()
+    """Normalize phone number: strip non-digits, then 52+10 for Mexico"""
+    phone = ''.join(filter(str.isdigit, phone))
     if phone.startswith("521") and len(phone) == 13:
         return "52" + phone[3:]
     return phone

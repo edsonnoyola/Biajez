@@ -292,6 +292,110 @@ class RateLimiter:
             self.fallback_storage.pop(phone_number, None)
 
 
+class DuffelCircuitBreaker:
+    """Circuit breaker for Duffel API — stops hammering when the API is down"""
+
+    # States: closed (normal), open (blocked), half_open (testing)
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 60):
+        """
+        Args:
+            failure_threshold: consecutive failures before opening circuit
+            recovery_timeout: seconds to wait before trying again (half-open)
+        """
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self._state = self.CLOSED
+        self._failure_count = 0
+        self._last_failure_time = 0.0
+        self._redis_key = "duffel:circuit_breaker"
+
+    def _get_state_from_redis(self, redis_client) -> dict:
+        """Read circuit breaker state from Redis (shared across workers)"""
+        try:
+            data = redis_client.get(self._redis_key)
+            if data:
+                return json.loads(data)
+        except Exception:
+            pass
+        return {"state": self.CLOSED, "failures": 0, "last_failure": 0.0}
+
+    def _save_state_to_redis(self, redis_client, state: str, failures: int, last_failure: float):
+        """Persist circuit breaker state to Redis"""
+        try:
+            redis_client.setex(
+                self._redis_key,
+                self.recovery_timeout * 3,  # TTL = 3x recovery so it auto-clears
+                json.dumps({"state": state, "failures": failures, "last_failure": last_failure})
+            )
+        except Exception:
+            pass
+
+    def can_request(self, redis_client=None) -> bool:
+        """Check if a request is allowed through the circuit breaker"""
+        now = datetime.now().timestamp()
+
+        if redis_client:
+            cb = self._get_state_from_redis(redis_client)
+            state = cb["state"]
+            failures = cb["failures"]
+            last_failure = cb["last_failure"]
+        else:
+            state = self._state
+            failures = self._failure_count
+            last_failure = self._last_failure_time
+
+        if state == self.CLOSED:
+            return True
+        elif state == self.OPEN:
+            # Check if recovery timeout has passed → half-open
+            if now - last_failure >= self.recovery_timeout:
+                return True  # Allow one test request
+            return False
+        elif state == self.HALF_OPEN:
+            return True  # Allow test request
+        return True
+
+    def record_success(self, redis_client=None):
+        """Record a successful API call — reset the circuit"""
+        self._state = self.CLOSED
+        self._failure_count = 0
+        if redis_client:
+            self._save_state_to_redis(redis_client, self.CLOSED, 0, 0.0)
+
+    def record_failure(self, redis_client=None):
+        """Record a failed API call — may trip the circuit"""
+        now = datetime.now().timestamp()
+        self._failure_count += 1
+        self._last_failure_time = now
+
+        if redis_client:
+            cb = self._get_state_from_redis(redis_client)
+            failures = cb["failures"] + 1
+        else:
+            failures = self._failure_count
+
+        if failures >= self.failure_threshold:
+            self._state = self.OPEN
+            print(f"🔴 CIRCUIT BREAKER OPEN — Duffel API down ({failures} consecutive failures). Blocking for {self.recovery_timeout}s")
+            if redis_client:
+                self._save_state_to_redis(redis_client, self.OPEN, failures, now)
+        else:
+            if redis_client:
+                self._save_state_to_redis(redis_client, self.CLOSED, failures, now)
+
+    def get_status(self, redis_client=None) -> dict:
+        """Get current circuit breaker status"""
+        if redis_client:
+            cb = self._get_state_from_redis(redis_client)
+            return {"state": cb["state"], "failures": cb["failures"]}
+        return {"state": self._state, "failures": self._failure_count}
+
+
 # Global instances
 session_manager = RedisSessionManager()
 rate_limiter = RateLimiter(max_messages=10, window_seconds=60)
+duffel_breaker = DuffelCircuitBreaker(failure_threshold=5, recovery_timeout=60)

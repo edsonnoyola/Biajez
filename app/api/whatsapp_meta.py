@@ -128,14 +128,13 @@ _auth_env = os.getenv("AUTHORIZED_NUMBERS", "")
 AUTHORIZED_NUMBERS = [n.strip() for n in _auth_env.split(",") if n.strip()]
 
 def normalize_mx_number(phone_number: str) -> str:
-    """Standardize Mexican phone numbers to 52 + 10 digits (remove + and 1 after 52)"""
-    # Remove + if present
-    phone = phone_number.replace("+", "").strip()
-    
+    """Standardize phone numbers: strip non-digits, then 52+10 for Mexico (remove 1 after 52)"""
+    phone = ''.join(filter(str.isdigit, phone_number))
+
     # Handle Mexico special case (521 -> 52)
     if phone.startswith("521") and len(phone) == 13:
         return "52" + phone[3:]
-    
+
     return phone
 
 def is_authorized(phone_number: str) -> bool:
@@ -214,7 +213,8 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         if session_manager.enabled:
             try:
                 # SETNX returns False if key already exists = duplicate
-                was_set = session_manager.redis_client.set(dedup_key, "1", nx=True, ex=3600)
+                # 24h TTL — Meta can retry webhooks for hours after initial delivery
+                was_set = session_manager.redis_client.set(dedup_key, "1", nx=True, ex=86400)
                 is_duplicate = not was_set
             except Exception:
                 pass  # Redis down — fall through to in-memory
@@ -2744,57 +2744,62 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
 
         # CLIMA / WEATHER
         if any(kw in msg_lower for kw in ['clima', 'weather', 'tiempo en', 'pronóstico']):
-            from app.services.weather_service import WeatherService
-            import asyncio
+            try:
+                from app.services.weather_service import WeatherService
 
-            weather_service = WeatherService()
+                weather_service = WeatherService()
 
-            # Extract city from message
-            city_match = re.search(r'(?:clima|weather|tiempo en|pronóstico)\s+(?:en\s+)?([A-Za-záéíóúñÁÉÍÓÚÑ\s]+)', msg_lower)
-            city = city_match.group(1).strip() if city_match else None
+                # Extract city from message
+                city_match = re.search(r'(?:clima|weather|tiempo en|pronóstico)\s+(?:en\s+)?([A-Za-záéíóúñÁÉÍÓÚÑ\s]+)', msg_lower)
+                city = city_match.group(1).strip() if city_match else None
 
-            # If no city, try to get from recent search or ask
-            if not city:
-                if session.get("pending_flights"):
-                    # Get destination from last flight search
-                    city = session["pending_flights"][0].get("arrival_iata", "")
-                elif session.get("pending_hotel_search"):
-                    city = session["pending_hotel_search"].get("city", "")
+                # If no city, try to get from recent search or ask
+                if not city:
+                    if session.get("pending_flights"):
+                        city = session["pending_flights"][0].get("arrival_iata", "")
+                    elif session.get("pending_hotel_search"):
+                        city = session["pending_hotel_search"].get("city", "")
 
-            if city:
-                weather = await weather_service.get_weather(city)
-                response = weather_service.format_for_whatsapp(weather)
-            else:
-                response = "*Clima*\n\nEscribe: clima [ciudad]\n\nEjemplos:\n- clima cancun\n- clima madrid\n- clima miami"
+                if city:
+                    weather = await weather_service.get_weather(city)
+                    response = weather_service.format_for_whatsapp(weather)
+                else:
+                    response = "*Clima*\n\nEscribe: clima [ciudad]\n\nEjemplos:\n- clima cancun\n- clima madrid\n- clima miami"
+            except Exception as weather_err:
+                print(f"⚠️ Weather service error: {weather_err}")
+                response = "No pude obtener el clima en este momento. Intenta de nuevo en unos minutos."
 
             send_whatsapp_message(from_number, response)
             return {"status": "ok"}
 
         # TIPO DE CAMBIO / CURRENCY
         if any(kw in msg_lower for kw in ['cambio', 'tipo de cambio', 'moneda', 'currency', 'dolar', 'euro']):
-            from app.services.currency_service import CurrencyService
-            import asyncio
+            try:
+                from app.services.currency_service import CurrencyService
 
-            currency_service = CurrencyService()
+                currency_service = CurrencyService()
 
-            # Extract destination from message
-            dest_match = re.search(r'(?:cambio|moneda|currency)\s+(?:en|para|a)?\s*([A-Za-záéíóúñ\s]+)', msg_lower)
-            destination = dest_match.group(1).strip() if dest_match else None
+                # Extract destination from message
+                dest_match = re.search(r'(?:cambio|moneda|currency)\s+(?:en|para|a)?\s*([A-Za-záéíóúñ\s]+)', msg_lower)
+                destination = dest_match.group(1).strip() if dest_match else None
 
-            # Default currencies
-            from_curr = "USD"
-            to_curr = "MXN"
+                # Default currencies
+                from_curr = "USD"
+                to_curr = "MXN"
 
-            if destination:
-                to_curr = currency_service.get_currency_for_destination(destination)
-            elif session.get("pending_flights"):
-                # Get destination currency from flight search
-                dest = session["pending_flights"][0].get("arrival_iata", "")
-                to_curr = currency_service.get_currency_for_destination(dest)
-                destination = dest
+                if destination:
+                    to_curr = currency_service.get_currency_for_destination(destination)
+                elif session.get("pending_flights"):
+                    dest = session["pending_flights"][0].get("arrival_iata", "")
+                    to_curr = currency_service.get_currency_for_destination(dest)
+                    destination = dest
 
-            exchange = await currency_service.get_exchange_rate(from_curr, to_curr)
-            response = currency_service.format_for_whatsapp(exchange, destination)
+                exchange = await currency_service.get_exchange_rate(from_curr, to_curr)
+                response = currency_service.format_for_whatsapp(exchange, destination)
+            except Exception as curr_err:
+                print(f"⚠️ Currency service error: {curr_err}")
+                response = "No pude obtener el tipo de cambio. Intenta de nuevo en unos minutos."
+
             send_whatsapp_message(from_number, response)
             return {"status": "ok"}
 
@@ -3480,12 +3485,12 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
             session["messages"] = final_messages
             session_manager.save_session(from_number, session)
 
-        # AGGRESSIVE: Limit conversation history to prevent "Request too large" error
-        if len(session["messages"]) > 10:
-            # Keep only last 10 messages to stay under token limit
-            session["messages"] = session["messages"][-10:]
+        # Limit conversation history to prevent "Request too large" error
+        # 20 messages covers full booking flows (search → select → passengers → pay → confirm)
+        if len(session["messages"]) > 20:
+            session["messages"] = session["messages"][-20:]
             session_manager.save_session(from_number, session)
-            print(f"📝 Trimmed conversation history to last 10 messages")
+            print(f"📝 Trimmed conversation history to last 20 messages")
         # -----------------------------------
 
         # Build session context for AI - include all relevant state
