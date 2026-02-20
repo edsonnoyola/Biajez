@@ -43,7 +43,7 @@ class BaggageService:
             if order_response.status_code != 200:
                 return {
                     "success": False,
-                    "error": f"Could not retrieve order: {order_response.text}"
+                    "error": "No se pudo obtener la orden"
                 }
 
             order_data = order_response.json()["data"]
@@ -192,7 +192,7 @@ class BaggageService:
             else:
                 return {
                     "success": False,
-                    "error": f"Failed to add baggage: {response.text}"
+                    "error": "No se pudo agregar el equipaje"
                 }
 
         except Exception as e:

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from decimal import Decimal
@@ -414,10 +415,28 @@ class FlightAggregator:
 
             print(f"DEBUG: Duffel request payload: {json.dumps(payload, indent=2)}")
 
-            response = await asyncio.to_thread(requests.post, url, json=payload, headers=headers)
-            
-            if response.status_code != 201:
-                print(f"Duffel Search Error: {response.text}")
+            def _duffel_search_with_retry():
+                for attempt in range(3):
+                    try:
+                        resp = requests.post(url, json=payload, headers=headers, timeout=25)
+                        if resp.status_code in (429, 500, 502, 503, 504) and attempt < 2:
+                            wait = (attempt + 1) * 2
+                            print(f"⚠️ Duffel search {resp.status_code}, retrying in {wait}s")
+                            time.sleep(wait)
+                            continue
+                        return resp
+                    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                        if attempt < 2:
+                            print(f"⚠️ Duffel search network error, retrying: {e}")
+                            time.sleep((attempt + 1) * 2)
+                        else:
+                            raise
+                return None
+
+            response = await asyncio.to_thread(_duffel_search_with_retry)
+
+            if not response or response.status_code != 201:
+                print(f"Duffel Search Error: {response.status_code if response else 'no response'}")
                 return []
                 
             response_data = response.json()["data"]

@@ -1,4 +1,5 @@
 import os
+import time
 import stripe
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
@@ -7,6 +8,36 @@ from amadeus import Client
 from duffel_api import Duffel
 from app.services.liteapi_hotels import LiteAPIService
 import json
+import requests as _requests
+
+
+def _duffel_request_with_retry(method, url, headers, max_retries=2, **kwargs):
+    """Make a Duffel API request with retry on transient failures (429, 500, 502, 503, 504)."""
+    last_exc = None
+    for attempt in range(max_retries + 1):
+        try:
+            if method == "GET":
+                resp = _requests.get(url, headers=headers, **kwargs)
+            else:
+                resp = _requests.post(url, headers=headers, **kwargs)
+
+            # Retry on transient HTTP errors
+            if resp.status_code in (429, 500, 502, 503, 504) and attempt < max_retries:
+                wait = (attempt + 1) * 2  # 2s, 4s
+                print(f"⚠️ Duffel {resp.status_code}, retrying in {wait}s (attempt {attempt+1}/{max_retries})")
+                time.sleep(wait)
+                continue
+
+            return resp
+        except (_requests.exceptions.Timeout, _requests.exceptions.ConnectionError) as e:
+            last_exc = e
+            if attempt < max_retries:
+                wait = (attempt + 1) * 2
+                print(f"⚠️ Duffel network error, retrying in {wait}s: {e}")
+                time.sleep(wait)
+            else:
+                raise
+    raise last_exc or Exception("Duffel request failed after retries")
 
 def save_trip_sql(booking_reference, user_id, provider_source, total_amount, status,
                    invoice_url=None, confirmed_at=None, departure_city=None,
@@ -456,8 +487,8 @@ class BookingOrchestrator:
         
         # Re-fetch offer to get latest price before booking (per Duffel docs)
         try:
-            offer_resp = requests.get(
-                f"https://api.duffel.com/air/offers/{real_offer_id}",
+            offer_resp = _duffel_request_with_retry(
+                "GET", f"https://api.duffel.com/air/offers/{real_offer_id}",
                 headers={**headers, "Content-Type": "application/json"}, timeout=15
             )
             if offer_resp.status_code == 200:
@@ -486,10 +517,11 @@ class BookingOrchestrator:
             data["data"]["services"] = services
 
         try:
-            response = requests.post(url, json=data, headers=headers, timeout=30)
+            response = _duffel_request_with_retry("POST", url, headers, json=data, timeout=30)
 
             if response.status_code not in [200, 201]:
-                 raise Exception(f"API Error: {response.text}")
+                 print(f"❌ Duffel booking API error: {response.status_code}")
+                 raise Exception(f"Duffel booking failed (status {response.status_code})")
                  
             order_data = response.json()["data"]
             pnr = order_data['booking_reference']

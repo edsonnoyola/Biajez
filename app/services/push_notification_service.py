@@ -61,8 +61,8 @@ class PushNotificationService:
             if response.status_code == 200:
                 return {"success": True, "message_id": response.json().get("messages", [{}])[0].get("id")}
             else:
-                print(f"WhatsApp send error: {response.text}")
-                return {"success": False, "error": response.text}
+                print(f"WhatsApp send error: {response.status_code}")
+                return {"success": False, "error": "Error enviando mensaje"}
 
         except Exception as e:
             print(f"WhatsApp send exception: {e}")

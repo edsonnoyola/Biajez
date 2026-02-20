@@ -883,7 +883,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                 # Fetch order from Duffel to get current slice IDs
                 order_resp = _requests.get(f"https://api.duffel.com/air/orders/{order_id}", headers=duffel_headers, timeout=15)
                 if order_resp.status_code != 200:
-                    print(f"❌ Order fetch failed: {order_resp.status_code} - {order_resp.text[:300]}")
+                    print(f"❌ Order fetch failed: {order_resp.status_code}")
                     send_whatsapp_message(from_number, "❌ No se pudo obtener la información de tu vuelo.\n\nIntenta de nuevo en unos minutos.")
                     return {"status": "ok"}
 
@@ -952,14 +952,17 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                 change_resp = _requests.post(change_url, json=change_payload, headers=duffel_headers, timeout=30)
 
                 if change_resp.status_code != 201:
-                    error_msg = change_resp.text
-                    if "order_change_not_possible" in error_msg or "not changeable" in error_msg or "invalid_state_error" in error_msg:
+                    try:
+                        err_body = change_resp.json()
+                        err_type = err_body.get("errors", [{}])[0].get("type", "")
+                    except:
+                        err_type = ""
+                    if "not_possible" in err_type or "not_changeable" in err_type or "invalid_state" in err_type:
                         send_whatsapp_message(from_number, "❌ Esta aerolínea no permite cambios en este boleto.\n\nPuedes cancelar y reservar uno nuevo.")
-                    elif "no_available" in error_msg or "sold_out" in error_msg:
+                    elif "no_available" in err_type or "sold_out" in err_type:
                         send_whatsapp_message(from_number, f"❌ No hay vuelos disponibles para {new_date}. Intenta otra fecha.")
                     else:
-                        # Log full error but show clean message to user
-                        print(f"❌ Change request failed: {change_resp.status_code} - {error_msg[:300]}")
+                        print(f"❌ Change request failed: {change_resp.status_code}")
                         send_whatsapp_message(from_number, "❌ No se pudo solicitar el cambio de vuelo.\n\nIntenta de nuevo o contacta soporte.")
                     session.pop("pending_change", None)
                     session_manager.save_session(from_number, session)
@@ -1082,7 +1085,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                     print(f"DEBUG: Confirming change {change_id} with payment: {payment_amount} {payment_currency}")
                     confirm_resp = _requests.post(confirm_url, json=confirm_payload, headers=duffel_headers, timeout=30)
                     if confirm_resp.status_code not in [200, 201]:
-                        print(f"❌ Change confirm failed: {confirm_resp.status_code} - {confirm_resp.text[:300]}")
+                        print(f"❌ Change confirm failed: {confirm_resp.status_code}")
                         send_whatsapp_message(from_number, "❌ No se pudo confirmar el cambio de vuelo.\n\nIntenta de nuevo o busca otra opción.")
                         # Clean up on failure so user isn't stuck
                         session.pop("pending_change", None)
@@ -1166,7 +1169,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
 
                     send_whatsapp_message(from_number, response_text)
                 else:
-                    print(f"❌ Change confirm alt failed: {resp.status_code} - {resp.text[:300]}")
+                    print(f"❌ Change confirm alt failed: {resp.status_code}")
                     send_whatsapp_message(from_number, "❌ No se pudo confirmar el cambio de vuelo.\n\nIntenta de nuevo o busca otra opción.")
                     # Clean up on failure
                     session.pop("pending_change", None)
@@ -3725,7 +3728,7 @@ def send_whatsapp_message(to_number: str, text: str):
         if response.status_code == 200:
             print(f"✅ WhatsApp message sent to {to_number}")
         else:
-            print(f"❌ Error sending WhatsApp: {response.status_code} - {response.text}")
+            print(f"❌ Error sending WhatsApp: {response.status_code}")
         
         return response
     except Exception as e:
@@ -3801,7 +3804,7 @@ def send_interactive_message(to_number: str, body_text: str, buttons: list, head
         if response.status_code == 200:
             print(f"✅ Interactive message sent to {to_number} with {len(buttons)} buttons")
         else:
-            print(f"❌ Error sending interactive: {response.status_code} - {response.text}")
+            print(f"❌ Error sending interactive: {response.status_code}")
         
         return response
     except Exception as e:

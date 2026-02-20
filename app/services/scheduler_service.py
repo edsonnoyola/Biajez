@@ -2,6 +2,7 @@
 Scheduler Service - APScheduler setup for background jobs
 """
 import os
+import traceback
 from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -15,16 +16,63 @@ class SchedulerService:
 
     _instance = None
     _scheduler = None
+    _job_errors = {}  # Track consecutive failures per job
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._scheduler = AsyncIOScheduler()
+            cls._job_errors = {}
         return cls._instance
 
     @property
     def scheduler(self) -> AsyncIOScheduler:
         return self._scheduler
+
+    def _log_job_error(self, job_id: str, error: Exception):
+        """Track job failures and alert on consecutive errors"""
+        if job_id not in self._job_errors:
+            self._job_errors[job_id] = {"count": 0, "last_error": None}
+
+        self._job_errors[job_id]["count"] += 1
+        self._job_errors[job_id]["last_error"] = datetime.utcnow().isoformat()
+        count = self._job_errors[job_id]["count"]
+
+        print(f"🚨 SCHEDULER ERROR [{job_id}] (failure #{count}): {error}")
+        if count >= 3:
+            print(f"🚨 ALERT: Job '{job_id}' has failed {count} consecutive times!")
+            self._send_failure_alert(job_id, count, str(error))
+
+    def _log_job_success(self, job_id: str):
+        """Reset failure counter on success"""
+        if job_id in self._job_errors:
+            self._job_errors[job_id] = {"count": 0, "last_error": None}
+
+    def _send_failure_alert(self, job_id: str, count: int, error_msg: str):
+        """Send alert when a job keeps failing (WhatsApp to admin)"""
+        try:
+            admin_phone = os.getenv("ADMIN_PHONE")
+            if not admin_phone:
+                return
+            from app.services.push_notification_service import PushNotificationService
+            import asyncio
+            push_svc = PushNotificationService()
+            msg = (
+                f"🚨 *Alerta Scheduler*\n\n"
+                f"Job: {job_id}\n"
+                f"Fallos consecutivos: {count}\n"
+                f"Error: {error_msg[:200]}"
+            )
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.ensure_future(push_svc.send_message(admin_phone, msg))
+                else:
+                    loop.run_until_complete(push_svc.send_message(admin_phone, msg))
+            except RuntimeError:
+                pass
+        except Exception:
+            pass  # Alert is best-effort
 
     def start(self):
         """Start the scheduler and register all jobs"""
@@ -88,7 +136,8 @@ class SchedulerService:
 
     async def _check_price_alerts(self):
         """Job: Check active price alerts and notify on price drops"""
-        print("Running job: check_price_alerts")
+        job_id = "check_price_alerts"
+        print(f"Running job: {job_id}")
 
         db = SessionLocal()
         try:
@@ -144,36 +193,43 @@ class SchedulerService:
                 except Exception as e:
                     print(f"Error checking alert {alert.id}: {e}")
 
+            self._log_job_success(job_id)
             print("Price alerts check complete")
 
         except Exception as e:
-            print(f"Error in check_price_alerts job: {e}")
+            self._log_job_error(job_id, e)
         finally:
             db.close()
 
     async def _process_auto_checkins(self):
         """Job: Process pending auto check-ins"""
-        print("Running job: process_auto_checkins")
+        job_id = "process_auto_checkins"
+        print(f"Running job: {job_id}")
 
         db = SessionLocal()
         try:
             from app.services.checkin_service import CheckinService
             service = CheckinService(db)
             result = await service.process_pending_checkins()
+            self._log_job_success(job_id)
             print(f"Auto check-ins processed: {result}")
         except Exception as e:
-            print(f"Error in process_auto_checkins job: {e}")
+            self._log_job_error(job_id, e)
         finally:
             db.close()
 
     async def _refresh_visa_cache(self):
-        """Job: Refresh visa requirements cache"""
-        print("Running job: refresh_visa_cache")
+        """Job: Refresh visa requirements cache using Sherpa API or local map"""
+        job_id = "refresh_visa_cache"
+        print(f"Running job: {job_id}")
 
         db = SessionLocal()
         try:
             from app.models.models import VisaRequirement
+            from app.services.visa_service import VisaService
             from datetime import datetime, timedelta
+
+            visa_service = VisaService(db)
 
             # Find stale cache entries (older than 30 days)
             stale_date = (datetime.utcnow() - timedelta(days=30)).isoformat()
@@ -183,22 +239,37 @@ class SchedulerService:
 
             print(f"Found {len(stale_entries)} stale visa cache entries to refresh")
 
-            # In production, you would re-fetch from the API
-            # For now, just update the timestamp
+            refreshed = 0
             for entry in stale_entries:
-                entry.last_updated = datetime.utcnow().isoformat()
+                try:
+                    # Re-check using the service (tries Sherpa API first, then local map)
+                    result = visa_service.check_visa_requirement(
+                        passport_country=entry.passport_country,
+                        destination=entry.destination_country
+                    )
+                    if result.get("success"):
+                        entry.visa_required = result.get("visa_required", entry.visa_required)
+                        entry.visa_on_arrival = result.get("visa_on_arrival", entry.visa_on_arrival)
+                        entry.e_visa_available = result.get("e_visa_available", entry.e_visa_available)
+                        entry.notes = result.get("notes", entry.notes)
+                        entry.last_updated = datetime.utcnow().isoformat()
+                        refreshed += 1
+                except Exception as entry_err:
+                    print(f"Error refreshing visa {entry.passport_country}->{entry.destination_country}: {entry_err}")
 
             db.commit()
-            print("Visa cache refresh complete")
+            self._log_job_success(job_id)
+            print(f"Visa cache refresh complete: {refreshed}/{len(stale_entries)} updated")
 
         except Exception as e:
-            print(f"Error in refresh_visa_cache job: {e}")
+            self._log_job_error(job_id, e)
         finally:
             db.close()
 
     async def _send_trip_reminders(self):
         """Job: Send reminders for upcoming trips"""
-        print("Running job: send_trip_reminders")
+        job_id = "send_trip_reminders"
+        print(f"Running job: {job_id}")
 
         db = SessionLocal()
         try:
@@ -227,15 +298,16 @@ class SchedulerService:
                     await push_service.send_trip_reminder(
                         phone_number=profile.phone_number,
                         trip_pnr=trip.booking_reference,
-                        departure_city=trip.departure_city or "your departure city",
-                        arrival_city=trip.arrival_city or "your destination",
-                        departure_date=trip.departure_date.isoformat() if trip.departure_date else "tomorrow"
+                        departure_city=trip.departure_city or "tu ciudad",
+                        arrival_city=trip.arrival_city or "tu destino",
+                        departure_date=trip.departure_date.isoformat() if trip.departure_date else "mañana"
                     )
 
+            self._log_job_success(job_id)
             print(f"Sent {len(upcoming_trips)} trip reminders")
 
         except Exception as e:
-            print(f"Error in send_trip_reminders job: {e}")
+            self._log_job_error(job_id, e)
         finally:
             db.close()
 

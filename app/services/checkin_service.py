@@ -247,7 +247,7 @@ class CheckinService:
             response = requests.get(url, headers=headers, timeout=15)
 
             if response.status_code != 200:
-                print(f"❌ Duffel order fetch for checkin failed: {response.status_code} - {response.text[:300]}")
+                print(f"❌ Duffel order fetch for checkin failed: {response.status_code}")
                 return {
                     "success": False,
                     "error": "No se pudo obtener la información del vuelo desde Duffel"

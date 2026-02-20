@@ -104,7 +104,7 @@ class DuffelStaysEngine:
             response = requests.post(search_url, headers=self.headers, json=payload, timeout=30)
 
             if response.status_code not in [200, 201]:
-                print(f"Duffel Stays Search Error: {response.status_code} - {response.text[:300]}")
+                print(f"Duffel Stays Search Error: {response.status_code}")
                 return self._get_fallback_hotels(location)
 
             data = response.json().get("data", {})
@@ -175,7 +175,7 @@ class DuffelStaysEngine:
             response = requests.get(url, headers=self.headers, timeout=30)
 
             if response.status_code != 200:
-                print(f"Fetch rates error: {response.status_code} - {response.text[:300]}")
+                print(f"Fetch rates error: {response.status_code}")
                 return {"success": False, "error": "No se pudieron obtener las tarifas"}
 
             data = response.json().get("data", {})
@@ -228,18 +228,25 @@ class DuffelStaysEngine:
             response = requests.post(url, headers=self.headers, json=payload, timeout=30)
 
             if response.status_code not in [200, 201]:
-                error_text = response.text[:300]
-                print(f"Quote error: {response.status_code} - {error_text}")
+                print(f"Quote error: {response.status_code}")
 
-                # Check for common errors
-                if "unavailable" in error_text.lower() or "sold_out" in error_text.lower():
-                    return {"success": False, "error": "Esta habitacion ya no esta disponible. Intenta con otra opcion."}
-                if "price" in error_text.lower() and "changed" in error_text.lower():
-                    return {"success": False, "error": "El precio cambio. Busca de nuevo para ver el precio actualizado."}
+                # Parse error type for user-friendly message
+                try:
+                    err_body = response.json()
+                    err_type = err_body.get("errors", [{}])[0].get("type", "").lower()
+                    if "unavailable" in err_type or "sold_out" in err_type:
+                        return {"success": False, "error": "Esta habitacion ya no esta disponible. Intenta con otra opcion."}
+                    if "price" in err_type or "changed" in err_type:
+                        return {"success": False, "error": "El precio cambio. Busca de nuevo para ver el precio actualizado."}
+                except:
+                    pass
 
-                return {"success": False, "error": "No se pudo confirmar la tarifa"}
+                return {"success": False, "error": "No se pudo confirmar la tarifa. Intenta de nuevo."}
 
             data = response.json().get("data", {})
+
+            if not data.get("id"):
+                return {"success": False, "error": "No se obtuvo cotización válida. Intenta de nuevo."}
 
             return {
                 "success": True,
@@ -252,9 +259,12 @@ class DuffelStaysEngine:
                 "cancellation_timeline": data.get("cancellation_timeline", []),
             }
 
+        except requests.exceptions.Timeout:
+            print("Quote request timeout")
+            return {"success": False, "error": "La solicitud tardó demasiado. Intenta de nuevo."}
         except Exception as e:
             print(f"Error creating quote: {e}")
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": "No se pudo confirmar la tarifa. Intenta de nuevo."}
 
     # ===== STEP 4: BOOK =====
     def book_hotel(self, quote_id: str, guest_info: Dict) -> Dict:
@@ -262,6 +272,13 @@ class DuffelStaysEngine:
         Step 4: Create a booking using the quote_id.
         Per Duffel docs: POST /stays/bookings with quote_id, guests, email, phone.
         """
+        # Validate inputs before calling API
+        if not quote_id:
+            return {"success": False, "error": "No se pudo procesar la reserva. Intenta de nuevo."}
+
+        if not guest_info.get("given_name") or not guest_info.get("family_name"):
+            return {"success": False, "error": "Faltan datos del huésped. Verifica tu perfil."}
+
         url = f"{self.base_url}/bookings"
 
         payload = {
@@ -270,12 +287,15 @@ class DuffelStaysEngine:
                 "guests": [{
                     "given_name": guest_info.get("given_name"),
                     "family_name": guest_info.get("family_name"),
-                    "born_on": guest_info.get("born_on"),
                 }],
-                "email": guest_info.get("email"),
-                "phone_number": guest_info.get("phone_number"),
+                "email": guest_info.get("email") or "guest@biajez.com",
+                "phone_number": guest_info.get("phone_number") or "+15005550100",
             }
         }
+
+        # Add born_on if available (some Duffel accommodations require it)
+        if guest_info.get("born_on"):
+            payload["data"]["guests"][0]["born_on"] = guest_info["born_on"]
 
         # Add special requests if provided
         if guest_info.get("special_requests"):
@@ -286,9 +306,16 @@ class DuffelStaysEngine:
             response = requests.post(url, headers=self.headers, json=payload, timeout=60)
 
             if response.status_code not in [200, 201]:
-                error_text = response.text[:300]
-                print(f"Booking error: {response.status_code} - {error_text}")
-                return {"success": False, "error": "Error al reservar hotel"}
+                print(f"Booking error: {response.status_code}")
+                # Parse error for user-friendly message
+                try:
+                    err_data = response.json().get("errors", [{}])[0]
+                    err_type = err_data.get("type", "")
+                    if "expired" in err_type or "invalid" in err_type:
+                        return {"success": False, "error": "La cotización expiró. Busca el hotel de nuevo."}
+                except:
+                    pass
+                return {"success": False, "error": "Error al reservar hotel. Intenta de nuevo."}
 
             booking = response.json().get("data", {})
 
@@ -304,9 +331,12 @@ class DuffelStaysEngine:
                 "check_out_date": booking.get("check_out_date"),
             }
 
+        except requests.exceptions.Timeout:
+            print("Hotel booking timeout")
+            return {"success": False, "error": "La reserva tardó demasiado. Intenta de nuevo."}
         except Exception as e:
             print(f"Error booking hotel: {e}")
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": "Error al reservar hotel. Intenta de nuevo."}
 
     # ===== HELPERS =====
     def get_accommodation_details(self, accommodation_id: str) -> Dict:
