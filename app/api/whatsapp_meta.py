@@ -1332,37 +1332,99 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 send_whatsapp_message(from_number, response_text)
                 return {"status": "ok"}
 
-            # Real booking with DuffelStays for production hotels
-            # Get profile for guest info
+            # Real booking with Duffel Stays (4-step flow: search > rates > quote > book)
             from app.models.models import Profile
             profile = db.query(Profile).filter(Profile.user_id == session["user_id"]).first()
             if not profile:
-                response_text = "❌ Necesitas un perfil para reservar hoteles.\nContacta al administrador."
+                response_text = "❌ Necesitas un perfil para reservar hoteles.\nEscribe *registrar* para crear tu perfil."
                 send_whatsapp_message(from_number, response_text)
                 return {"status": "ok"}
-            
+
             try:
                 from app.services.duffel_stays import DuffelStaysEngine
                 duffel_stays = DuffelStaysEngine()
-                
+
+                search_result_id = hotel.get("search_result_id") or hotel.get("offerId")
+
+                if not search_result_id:
+                    response_text = "❌ No se pudo procesar esta reserva. Busca hoteles de nuevo."
+                    send_whatsapp_message(from_number, response_text)
+                    return {"status": "ok"}
+
+                # Step 2: Fetch all rates for this hotel
+                send_whatsapp_message(from_number, "🔄 Obteniendo disponibilidad y tarifas...")
+                rates_data = duffel_stays.fetch_all_rates(search_result_id)
+
+                if not rates_data.get("success") or not rates_data.get("rooms"):
+                    response_text = "❌ Este hotel ya no tiene habitaciones disponibles.\n\nIntenta buscar de nuevo."
+                    send_whatsapp_message(from_number, response_text)
+                    session["selected_hotel"] = None
+                    session_manager.save_session(from_number, session)
+                    return {"status": "ok"}
+
+                # Use the cheapest rate
+                cheapest_room = rates_data["rooms"][0]
+                selected_rate_id = cheapest_room.get("rate_id")
+
+                # Step 3: Create quote (confirms availability + final price)
+                quote_data = duffel_stays.create_quote(selected_rate_id)
+
+                if not quote_data.get("success"):
+                    response_text = f"❌ {quote_data.get('error', 'No se pudo confirmar disponibilidad')}\n\nIntenta con otra opción."
+                    send_whatsapp_message(from_number, response_text)
+                    session["selected_hotel"] = None
+                    session_manager.save_session(from_number, session)
+                    return {"status": "ok"}
+
+                quote_id = quote_data.get("quote_id")
+                final_amount = quote_data.get("total_amount", "0")
+                final_currency = quote_data.get("total_currency", "USD")
+
+                # Step 4: Book using quote_id
                 guest_info = {
                     "given_name": profile.legal_first_name,
                     "family_name": profile.legal_last_name,
                     "email": profile.email,
                     "phone_number": profile.phone_number
                 }
-                
-                booking_result = duffel_stays.book_hotel(rate_id, guest_info)
-                
+
+                booking_result = duffel_stays.book_hotel(quote_id, guest_info)
+
+                if not booking_result.get("success"):
+                    response_text = f"❌ {booking_result.get('error', 'Error al reservar hotel')}\n\nIntenta de nuevo."
+                    send_whatsapp_message(from_number, response_text)
+                    session["selected_hotel"] = None
+                    session_manager.save_session(from_number, session)
+                    return {"status": "ok"}
+
                 confirmation = booking_result.get("confirmation_number", "N/A")
-                total = booking_result.get("total_amount", "N/A")
-                currency = booking_result.get("total_currency", "USD")
-                
+                total = booking_result.get("total_amount", final_amount)
+                currency = booking_result.get("total_currency", final_currency)
+                check_in = booking_result.get("check_in_date", "")
+                check_out = booking_result.get("check_out_date", "")
+
                 response_text = f"✅ *¡Reserva de hotel confirmada!*\n\n"
-                response_text += f"📝 Confirmación: {confirmation}\n"
-                response_text += f"💰 Total: {total} {currency}\n\n"
-                response_text += "_Te enviaremos los detalles por email_"
-                
+                response_text += f"🏨 {hotel_name}\n"
+                response_text += f"📝 Confirmación: *{confirmation}*\n"
+                if check_in and check_out:
+                    response_text += f"📅 {check_in} → {check_out}\n"
+                response_text += f"💰 Total: ${total} {currency}\n\n"
+                response_text += "✨ _Reserva confirmada._"
+
+                # Save trip to DB
+                try:
+                    from app.services.booking_execution import save_trip_sql
+                    save_trip_sql(
+                        booking_reference=confirmation or f"HTL-{os.urandom(3).hex().upper()}",
+                        user_id=profile.user_id,
+                        provider_source="DUFFEL",
+                        total_amount=float(total) if total else 0,
+                        status="TICKETED",
+                        invoice_url=""
+                    )
+                except Exception as db_err:
+                    print(f"⚠️ Could not save hotel trip to DB: {db_err}")
+
                 session["selected_hotel"] = None
                 session_manager.save_session(from_number, session)
                 

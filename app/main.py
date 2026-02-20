@@ -117,6 +117,9 @@ def run_migrations():
             if not column_exists(conn, 'trips', 'eticket_number'):
                 conn.execute(text("ALTER TABLE trips ADD COLUMN eticket_number VARCHAR"))
                 conn.commit()
+            if not column_exists(conn, 'trips', 'ticket_html'):
+                conn.execute(text("ALTER TABLE trips ADD COLUMN ticket_html TEXT"))
+                conn.commit()
 
             # Add column to notifications table
             if not column_exists(conn, 'notifications', 'extra_data'):
@@ -295,22 +298,29 @@ def health_check():
 
 @app.get("/ticket/{pnr}")
 def get_ticket(pnr: str):
-    """Serve ticket HTML by PNR"""
+    """Serve ticket HTML by PNR - checks memory first, then DB"""
     from fastapi.responses import HTMLResponse
-    from app.services.ticket_generator import TICKET_STORE
+    from app.services.ticket_generator import TICKET_STORE, _load_ticket_from_db
 
+    # 1. Check in-memory cache (fast)
     if pnr in TICKET_STORE:
         return HTMLResponse(content=TICKET_STORE[pnr], status_code=200)
 
-    # If not in memory, return a simple "not found" page
+    # 2. Check database (persistent - survives restarts)
+    db_html = _load_ticket_from_db(pnr)
+    if db_html:
+        TICKET_STORE[pnr] = db_html  # Re-cache in memory
+        return HTMLResponse(content=db_html, status_code=200)
+
+    # 3. Not found
     return HTMLResponse(
         content=f"""
         <html>
-        <head><title>Ticket Not Found</title></head>
+        <head><title>Ticket no encontrado</title></head>
         <body style="font-family: sans-serif; text-align: center; padding: 50px;">
             <h1>Ticket no encontrado</h1>
-            <p>El ticket con PNR <strong>{pnr}</strong> no está disponible.</p>
-            <p>Los tickets se generan al momento de la compra y están disponibles por tiempo limitado.</p>
+            <p>El ticket con PNR <strong>{pnr}</strong> no esta disponible.</p>
+            <p>Los tickets se generan al momento de la reserva.</p>
         </body>
         </html>
         """,
