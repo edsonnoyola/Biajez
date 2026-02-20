@@ -206,21 +206,32 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         message_type = message.get("type")
         message_id = message.get("id")
 
-        # ===== DEDUPLICACIÓN DE MENSAJES =====
+        # ===== DEDUPLICACIÓN DE MENSAJES (Redis-backed) =====
         # WhatsApp puede enviar el mismo webhook múltiples veces
-        # Usar un set en memoria para rastrear mensajes procesados
-        if not hasattr(whatsapp_webhook, '_processed_messages'):
-            whatsapp_webhook._processed_messages = set()
+        # Usar Redis SETNX para dedup persistente (sobrevive restarts)
+        dedup_key = f"wa:dedup:{message_id}"
+        is_duplicate = False
+        if session_manager.enabled:
+            try:
+                # SETNX returns False if key already exists = duplicate
+                was_set = session_manager.redis_client.set(dedup_key, "1", nx=True, ex=3600)
+                is_duplicate = not was_set
+            except Exception:
+                pass  # Redis down — fall through to in-memory
+        if not is_duplicate:
+            # In-memory fallback
+            if not hasattr(whatsapp_webhook, '_processed_messages'):
+                whatsapp_webhook._processed_messages = set()
+            if message_id in whatsapp_webhook._processed_messages:
+                is_duplicate = True
+            else:
+                whatsapp_webhook._processed_messages.add(message_id)
+                if len(whatsapp_webhook._processed_messages) > 1000:
+                    whatsapp_webhook._processed_messages = set(list(whatsapp_webhook._processed_messages)[-500:])
 
-        if message_id in whatsapp_webhook._processed_messages:
+        if is_duplicate:
             print(f"⏭️ Mensaje duplicado ignorado: {message_id}")
             return {"status": "ok", "duplicate": True}
-
-        # Agregar al set (limitar a últimos 1000 para no consumir memoria)
-        whatsapp_webhook._processed_messages.add(message_id)
-        if len(whatsapp_webhook._processed_messages) > 1000:
-            # Limpiar mensajes antiguos
-            whatsapp_webhook._processed_messages = set(list(whatsapp_webhook._processed_messages)[-500:])
 
         # Handle interactive button responses
         if message_type == "interactive":
@@ -1695,6 +1706,13 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                 return {"status": "ok"}
 
         if incoming_msg.lower() in ['si', 'sí', 'yes', 'confirmar'] and session.get("selected_flight"):
+            # Prevent double-booking: check if already processing
+            if session.get("booking_in_progress"):
+                send_whatsapp_message(from_number, "⏳ Ya estamos procesando tu reserva. Espera un momento.")
+                return {"status": "ok"}
+            session["booking_in_progress"] = True
+            session_manager.save_session(from_number, session)
+
             # Check if user is authorized to make bookings
             if not is_authorized(from_number):
                 response_text = "❌ *No autorizado*\n\n"
@@ -1854,10 +1872,10 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
 
                     # Save trip using raw SQL (ORM doesn't persist on Render)
                     from app.services.booking_execution import save_trip_sql
-                    save_trip_sql(
+                    mock_saved = save_trip_sql(
                         booking_reference=pnr,
                         user_id=session["user_id"],
-                        provider_source="DUFFEL",
+                        provider_source="SIMULATION",
                         total_amount=float(price) if price else 0,
                         status="TICKETED",
                         departure_city=dep_city,
@@ -1865,6 +1883,8 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                         departure_date=dep_date,
                         confirmed_at=dt.utcnow().isoformat()
                     )
+                    if not mock_saved:
+                        response_text += "\n⚠️ _Hubo un problema guardando tu reserva. Contacta soporte con tu PNR._"
 
                     # Store last booking info for context (so user can say "same dates" later)
                     session["last_booking"] = {
@@ -1960,6 +1980,8 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                 if eticket:
                     response_text += f"🎫 *E-ticket:* {eticket}\n"
                 response_text += "\n✨ _Reserva REAL confirmada en la aerolínea_\n"
+                if not booking_result.get("db_saved", True):
+                    response_text += "\n⚠️ _Hubo un problema guardando tu reserva. Guarda tu PNR y contacta soporte si no aparece en 'mis viajes'._\n"
                 if ticket_url:
                     response_text += f"🎫 Ticket: {ticket_url}"
 
@@ -1984,6 +2006,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                 session.pop("companions", None)
                 session.pop("num_passengers", None)
                 session.pop("collecting_companion", None)
+                session.pop("booking_in_progress", None)
                 # Clear any stale post-booking states
                 session.pop("pending_seat_selection", None)
                 session.pop("pending_baggage", None)
@@ -2046,6 +2069,10 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                     response_text += "Hubo un problema procesando tu solicitud.\n"
                     response_text += "Por favor intenta buscar y reservar nuevamente."
 
+
+            # Always clear booking lock before responding
+            session.pop("booking_in_progress", None)
+            session_manager.save_session(from_number, session)
 
             # For Duffel bookings, show post-booking action buttons
             if provider and provider.upper() == "DUFFEL" and session.get("last_booking", {}).get("duffel_order_id"):

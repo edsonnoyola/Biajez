@@ -546,13 +546,13 @@ class BookingOrchestrator:
                             pass
 
             # Save Trip using raw SQL (ORM doesn't persist on Render)
-            save_trip_sql(
+            db_saved = save_trip_sql(
                 booking_reference=pnr,
                 user_id=profile.user_id,
                 provider_source="DUFFEL",
                 total_amount=amount,
                 status="TICKETED",
-                invoice_url="https://stripe.com/invoice/456",
+                invoice_url=None,
                 confirmed_at=datetime.utcnow().isoformat(),
                 departure_city=departure_city,
                 arrival_city=arrival_city,
@@ -560,6 +560,8 @@ class BookingOrchestrator:
                 duffel_order_id=ticket_number,
                 eticket_number=eticket_str
             )
+            if not db_saved:
+                print(f"🚨 CRITICAL: Duffel booking {pnr} (order {ticket_number}) succeeded but DB save failed!")
             
             
             # Generate HTML Ticket with REAL Duffel data
@@ -666,7 +668,7 @@ class BookingOrchestrator:
 
             return {"pnr": pnr, "ticket_number": ticket_number, "ticket_url": ticket_url,
                     "eticket_number": eticket_str, "duffel_order_id": ticket_number,
-                    "offer_id": real_offer_id}
+                    "offer_id": real_offer_id, "db_saved": db_saved}
 
         except Exception as e:
             print(f"DEBUG: Duffel Booking Error: {e}")
