@@ -224,6 +224,11 @@ class FlightAggregator:
             all_flights = flexible
         else:
             print("WARNING: No flexible flights found at all — showing all results as fallback")
+            # Mark flights so the UI can warn the user these are non-changeable
+            for f in all_flights:
+                if f.metadata is None:
+                    f.metadata = {}
+                f.metadata["_no_flexible_available"] = True
 
         # Sort by score (highest first)
         all_flights.sort(key=lambda f: f.score, reverse=True)

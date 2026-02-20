@@ -3561,6 +3561,16 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                             print(f"🔧 FALLBACK: AI missed cabin, detected '{detected_cabin}' from message")
                             cabin_filter = detected_cabin
 
+                    # Use profile's flight_class_preference as default when still ECONOMY
+                    if cabin_filter == "ECONOMY" and session_user_id:
+                        try:
+                            _prof = get_profile_sql(session_user_id)
+                            if _prof and _prof.get("flight_class_preference") and _prof["flight_class_preference"] != "ECONOMY":
+                                cabin_filter = _prof["flight_class_preference"]
+                                print(f"✈️ Using profile cabin preference: {cabin_filter}")
+                        except Exception:
+                            pass
+
                     print(f"⚠️ FLIGHT SEARCH FILTERS - time_of_day={time_filter}, cabin={cabin_filter}, airline={airline_filter}")
 
                     num_pax = arguments.get("passengers", 1)
@@ -3859,7 +3869,12 @@ def format_for_whatsapp(text: str, session: dict) -> str:
     """
     if session.get("pending_flights"):
         flights = session["pending_flights"]
-        flight_list = "\n\n✈️ *Vuelos encontrados:*\n🔄 _Solo vuelos con cambio permitido_\n\n"
+        # Check if these are non-changeable fallback flights
+        any_no_flex = any((f.get("metadata") or {}).get("_no_flexible_available") for f in flights)
+        if any_no_flex:
+            flight_list = "\n\n✈️ *Vuelos encontrados:*\n⚠️ _No hay vuelos con cambio en esta ruta. Estos boletos NO se pueden cambiar._\n\n"
+        else:
+            flight_list = "\n\n✈️ *Vuelos encontrados:*\n🔄 _Solo vuelos con cambio permitido_\n\n"
 
         for i, flight in enumerate(flights, 1):
             price = flight.get("price", "N/A")
