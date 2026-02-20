@@ -22,6 +22,9 @@ def _duffel_request_with_retry(method, url, headers, max_retries=2, **kwargs):
         raise Exception("Duffel API no disponible temporalmente. Intenta en 1 minuto.")
 
     last_exc = None
+    # Ensure timeout is always set to prevent hanging requests
+    kwargs.setdefault("timeout", 30)
+
     for attempt in range(max_retries + 1):
         try:
             if method == "GET":

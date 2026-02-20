@@ -1,8 +1,15 @@
 import os
+import hashlib
 from datetime import datetime
 
 # In-memory ticket store (fast cache, DB is primary storage)
 TICKET_STORE = {}
+
+
+def _ticket_token(pnr: str) -> str:
+    """Generate anti-enumeration token for ticket URL (must match main.py)"""
+    secret = os.getenv("ADMIN_SECRET", "biajez-ticket-salt")
+    return hashlib.sha256(f"{secret}:{pnr}".encode()).hexdigest()[:16]
 
 
 def _save_ticket_to_db(pnr: str, html_content: str):
@@ -124,7 +131,8 @@ class TicketGenerator:
         _save_ticket_to_db(pnr, html_content)
 
         base_url = os.getenv("BASE_URL", "https://biajez-d08x.onrender.com")
-        return f"{base_url}/ticket/{pnr}"
+        token = _ticket_token(pnr)
+        return f"{base_url}/ticket/{pnr}?t={token}"
 
     @staticmethod
     def generate_hotel_ticket(pnr, guest_name, hotel_data, amount):
@@ -197,4 +205,5 @@ class TicketGenerator:
         _save_ticket_to_db(pnr, html_content)
 
         base_url = os.getenv("BASE_URL", "https://biajez-d08x.onrender.com")
-        return f"{base_url}/ticket/{pnr}"
+        token = _ticket_token(pnr)
+        return f"{base_url}/ticket/{pnr}?t={token}"

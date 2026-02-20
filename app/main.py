@@ -10,11 +10,10 @@ print(f"   OPENAI_API_KEY: {'SET' if os.getenv('OPENAI_API_KEY') else 'NOT SET'}
 print(f"   WHATSAPP_ACCESS_TOKEN: {'SET' if os.getenv('WHATSAPP_ACCESS_TOKEN') else 'NOT SET'}")
 print(f"   REDIS_URL: {'SET' if os.getenv('REDIS_URL') else 'NOT SET'}")
 if os.getenv('DUFFEL_ACCESS_TOKEN'):
-    token = os.getenv('DUFFEL_ACCESS_TOKEN')
-    print(f"   DUFFEL token preview: {token[:25]}..." if len(token) > 25 else f"   DUFFEL token: {token}")
+    print(f"   DUFFEL token: configured (last4: ...{os.getenv('DUFFEL_ACCESS_TOKEN')[-4:]})")
 print("=" * 50)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, Depends as _Depends, HTTPException as _HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.models import models
@@ -256,13 +255,13 @@ app = FastAPI(
 )
 
 # CORS Configuration
+_cors_origins = os.getenv("CORS_ORIGINS", "").split(",") if os.getenv("CORS_ORIGINS") else []
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins in development
+    allow_origins=_cors_origins or ["http://localhost:3000", "http://localhost:5173"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods
-    allow_headers=["*"],  # Allow all headers
-    expose_headers=["*"]  # Expose all headers
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 # Core routers
@@ -296,11 +295,26 @@ def health_check():
     return {"status": "ok", "service": "biajez", "version": "2026-02-09a"}
 
 
+import hashlib as _hashlib
+
+def _ticket_token(pnr: str) -> str:
+    """Generate anti-enumeration token for ticket URL"""
+    secret = os.getenv("ADMIN_SECRET", "biajez-ticket-salt")
+    return _hashlib.sha256(f"{secret}:{pnr}".encode()).hexdigest()[:16]
+
 @app.get("/ticket/{pnr}")
-def get_ticket(pnr: str):
-    """Serve ticket HTML by PNR - checks memory first, then DB"""
+def get_ticket(pnr: str, t: str = None):
+    """Serve ticket HTML by PNR - requires valid token to prevent enumeration"""
     from fastapi.responses import HTMLResponse
     from app.services.ticket_generator import TICKET_STORE, _load_ticket_from_db
+
+    # Anti-enumeration: require token param
+    expected_token = _ticket_token(pnr)
+    if t != expected_token:
+        return HTMLResponse(
+            content="<html><body><h1>Enlace invalido</h1><p>Este enlace de ticket no es valido o ha expirado.</p></body></html>",
+            status_code=403
+        )
 
     # 1. Check in-memory cache (fast)
     if pnr in TICKET_STORE:
@@ -314,12 +328,12 @@ def get_ticket(pnr: str):
 
     # 3. Not found
     return HTMLResponse(
-        content=f"""
+        content="""
         <html>
         <head><title>Ticket no encontrado</title></head>
         <body style="font-family: sans-serif; text-align: center; padding: 50px;">
             <h1>Ticket no encontrado</h1>
-            <p>El ticket con PNR <strong>{pnr}</strong> no esta disponible.</p>
+            <p>Este ticket no esta disponible.</p>
             <p>Los tickets se generan al momento de la reserva.</p>
         </body>
         </html>
@@ -329,8 +343,8 @@ def get_ticket(pnr: str):
 
 
 @app.get("/scheduler/status")
-def get_scheduler_status():
-    """Get status of all scheduled background jobs"""
+def get_scheduler_status(_admin=_Depends(_verify_admin)):
+    """Get status of all scheduled background jobs (protected)"""
     return {
         "jobs": scheduler_service.get_jobs_status()
     }
@@ -343,11 +357,21 @@ ADMIN_SECRET = os.getenv("ADMIN_SECRET")
 if not ADMIN_SECRET:
     print("⚠️ WARNING: ADMIN_SECRET not set - admin endpoints will be disabled")
 
+def _verify_admin(authorization: str = Header(None), secret: str = None):
+    """Verify admin access via Authorization header (preferred) or query param (legacy)."""
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+    elif secret:
+        token = secret  # Legacy support — query param
+    if not ADMIN_SECRET or token != ADMIN_SECRET:
+        raise _HTTPException(status_code=403, detail="Forbidden")
+    return True
+
 @app.get("/admin/last-confirm/{phone}")
-def admin_last_confirm(phone: str, secret: str):
+def admin_last_confirm(phone: str, _admin=_Depends(_verify_admin)):
     """Get debug info from the last confirmation attempt for a phone number"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
+
 
     from app.api.whatsapp_meta import whatsapp_webhook
     if hasattr(whatsapp_webhook, '_last_confirm_debug'):
@@ -358,22 +382,20 @@ def admin_last_confirm(phone: str, secret: str):
 
 
 @app.post("/admin/clear-session/{phone}")
-def admin_clear_session(phone: str, secret: str):
+def admin_clear_session(phone: str, _admin=_Depends(_verify_admin)):
     """Clear a user's Redis session"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
+
     from app.services.whatsapp_redis import session_manager
     session_manager.delete_session(phone)
     return {"status": "ok", "message": f"Session cleared for {phone}"}
 
 @app.post("/admin/restart")
-def admin_restart(secret: str):
+def admin_restart(_admin=_Depends(_verify_admin)):
     """
     Restart the server (Render will auto-restart on exit).
     Usage: curl -X POST "https://biajez.onrender.com/admin/restart?secret=YOUR_SECRET"
     """
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
+
 
     import sys
     import threading
@@ -391,7 +413,7 @@ def admin_restart(secret: str):
 
 
 @app.get("/admin/health")
-def admin_health():
+def admin_health(_admin=_Depends(_verify_admin)):
     """Health check with system info"""
     import platform
 
@@ -413,10 +435,9 @@ def admin_health():
 
 
 @app.get("/admin/logs")
-def admin_logs(secret: str, lines: int = 50):
+def admin_logs(lines: int = 50, _admin=_Depends(_verify_admin)):
     """Get recent application logs (if available)"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
+
 
     # Return scheduler job status as proxy for logs
     return {
@@ -426,10 +447,9 @@ def admin_logs(secret: str, lines: int = 50):
 
 
 @app.get("/admin/redis-status")
-def admin_redis_status(secret: str):
+def admin_redis_status(_admin=_Depends(_verify_admin)):
     """Check Redis connectivity and session data"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
+
 
     from app.services.whatsapp_redis import session_manager
     import redis
@@ -462,10 +482,9 @@ def admin_redis_status(secret: str):
 
 
 @app.get("/admin/session/{phone}")
-def admin_get_session(phone: str, secret: str):
+def admin_get_session(phone: str, _admin=_Depends(_verify_admin)):
     """View a user's session data"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
+
 
     from app.services.whatsapp_redis import session_manager
 
@@ -494,10 +513,9 @@ def admin_get_session(phone: str, secret: str):
 
 
 @app.get("/admin/test-confirm/{phone}")
-def admin_test_confirm(phone: str, secret: str):
+def admin_test_confirm(phone: str, _admin=_Depends(_verify_admin)):
     """Simulate the FULL webhook flow for confirmation - including session init"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
+
 
     from sqlalchemy import text
     from app.services.whatsapp_redis import session_manager
@@ -606,10 +624,9 @@ def admin_test_confirm(phone: str, secret: str):
 
 
 @app.post("/admin/update-profile/{phone}")
-def admin_update_profile(phone: str, secret: str, first_name: str = None, last_name: str = None, email: str = None, dob: str = None, passport: str = None, passport_country: str = None, passport_expiry: str = None):
+def admin_update_profile(phone: str, first_name: str = None, last_name: str = None, email: str = None, dob: str = None, passport: str = None, passport_country: str = None, passport_expiry: str = None, _admin=_Depends(_verify_admin)):
     """Force update a profile with correct data"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
+
 
     from sqlalchemy import text
     updates = []
@@ -633,10 +650,9 @@ def admin_update_profile(phone: str, secret: str, first_name: str = None, last_n
 
 
 @app.get("/admin/debug-profile/{phone}")
-def admin_debug_profile(phone: str, secret: str):
+def admin_debug_profile(phone: str, _admin=_Depends(_verify_admin)):
     """Debug profile with raw SQL to see exact registration_step value"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
+
 
     from sqlalchemy import text
 
@@ -675,10 +691,9 @@ def admin_debug_profile(phone: str, secret: str):
 
 
 @app.post("/admin/clear-registration")
-def admin_clear_registration(secret: str):
+def admin_clear_registration(_admin=_Depends(_verify_admin)):
     """Force clear registration_step for ALL profiles"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
+
 
     from sqlalchemy import text
     with engine.connect() as conn:
@@ -688,10 +703,9 @@ def admin_clear_registration(secret: str):
 
 
 @app.post("/admin/fix-db")
-def admin_fix_db(secret: str):
+def admin_fix_db(_admin=_Depends(_verify_admin)):
     """Manually add missing columns to PostgreSQL database"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
+
 
     from sqlalchemy import text
     results = []
@@ -739,10 +753,9 @@ def admin_fix_db(secret: str):
 
 
 @app.post("/admin/fix-profile-phone")
-def admin_fix_profile_phone(secret: str, user_id: str, new_phone: str):
+def admin_fix_profile_phone(user_id: str, new_phone: str, _admin=_Depends(_verify_admin)):
     """Fix phone number in profile"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
+
 
     from app.db.database import SessionLocal
     from app.models.models import Profile
@@ -764,11 +777,10 @@ def admin_fix_profile_phone(secret: str, user_id: str, new_phone: str):
 
 
 @app.post("/admin/update-profile")
-def admin_update_profile(secret: str, user_id: str, first_name: str = None, last_name: str = None,
-                          email: str = None, passport: str = None, passport_country: str = None):
+def admin_update_profile_v2(user_id: str, first_name: str = None, last_name: str = None,
+                          email: str = None, passport: str = None, passport_country: str = None, _admin=_Depends(_verify_admin)):
     """Directly update profile with raw SQL"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
+
 
     from sqlalchemy import text
 
@@ -806,10 +818,9 @@ def admin_update_profile(secret: str, user_id: str, first_name: str = None, last
 
 
 @app.get("/admin/profile-by-userid/{user_id}")
-def admin_get_profile_by_userid(user_id: str, secret: str):
+def admin_get_profile_by_userid(user_id: str, _admin=_Depends(_verify_admin)):
     """Get profile by user_id"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
+
 
     from app.db.database import SessionLocal
     from app.models.models import Profile
@@ -844,10 +855,9 @@ def admin_get_profile_by_userid(user_id: str, secret: str):
 
 
 @app.get("/admin/profile/{phone}")
-def admin_get_profile(phone: str, secret: str):
+def admin_get_profile(phone: str, _admin=_Depends(_verify_admin)):
     """Get profile by phone number"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
+
 
     from app.db.database import SessionLocal
     from app.models.models import Profile
@@ -886,98 +896,10 @@ def admin_get_profile(phone: str, secret: str):
 
 
 @app.get("/admin/profiles")
-def admin_list_profiles(secret: str):
+def admin_list_profiles(_admin=_Depends(_verify_admin)):
     """List all profiles"""
-
-@app.get("/admin/webhook-log")
-def admin_webhook_log(secret: str, n: int = 10):
-    """Show last N webhook events from Redis"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
-    import redis, json as _json
-    try:
-        r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
-        logs = r.lrange("webhook_log", 0, n - 1)
-        return {"logs": [_json.loads(l) for l in logs]}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.get("/admin/booking-errors")
-def admin_booking_errors(secret: str, n: int = 10):
-    """Show last N booking errors from DB"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
-    from sqlalchemy import text
-    try:
-        with engine.connect() as conn:
-            result = conn.execute(
-                text("SELECT ts, phone, offer_id, provider, amount, error FROM booking_errors ORDER BY id DESC LIMIT :n"),
-                {"n": n}
-            )
-            errors = [dict(row._mapping) for row in result]
-            return {"errors": errors}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.get("/admin/list-trips")
-def admin_list_trips(secret: str, user_id: str = None):
-    """List all trips, optionally filtered by user_id"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
-    from sqlalchemy import text
-    try:
-        with engine.connect() as conn:
-            if user_id:
-                rows = conn.execute(text("SELECT booking_reference, user_id, status, departure_city, arrival_city, departure_date, total_amount, duffel_order_id, refund_amount FROM trips WHERE user_id = :uid"), {"uid": user_id}).fetchall()
-            else:
-                rows = conn.execute(text("SELECT booking_reference, user_id, status, departure_city, arrival_city, departure_date, total_amount, duffel_order_id, refund_amount FROM trips")).fetchall()
-        return {"trips": [{"booking_ref": r[0], "user_id": r[1], "status": r[2], "origin": r[3], "dest": r[4], "date": str(r[5]), "amount": float(r[6]) if r[6] else 0, "duffel_id": r[7], "refund": float(r[8]) if r[8] else None} for r in rows]}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.delete("/admin/delete-trip/{booking_ref}")
-def admin_delete_trip(booking_ref: str, secret: str):
-    """Delete a trip record by booking_reference"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
-    from sqlalchemy import text
-    try:
-        with engine.connect() as conn:
-            result = conn.execute(text("DELETE FROM trips WHERE booking_reference = :ref"), {"ref": booking_ref})
-            conn.commit()
-        return {"status": "ok", "deleted": result.rowcount}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.get("/admin/send-test")
-def admin_send_test(secret: str, phone: str, msg: str = "Hola, este es un mensaje de prueba del bot Biajez."):
-    """Send a test WhatsApp message to verify API connection"""
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
-    import requests as _req
-    phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
-    access_token = os.getenv("WHATSAPP_ACCESS_TOKEN")
-    if not phone_number_id or not access_token:
-        return {"status": "error", "message": "WhatsApp credentials not configured"}
-    # Normalize Mexican numbers
-    to_number = phone
-    if to_number.startswith("521") and len(to_number) == 13:
-        to_number = "52" + to_number[3:]
-    url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
-    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-    data = {"messaging_product": "whatsapp", "to": to_number, "type": "text", "text": {"body": msg}}
-    try:
-        resp = _req.post(url, json=data, headers=headers)
-        return {"status": "ok", "to": to_number, "http_status": resp.status_code, "response": resp.json()}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-    if secret != ADMIN_SECRET:
-        return {"status": "error", "message": "Invalid secret"}
-
     from app.db.database import SessionLocal
     from app.models.models import Profile
-
     try:
         db = SessionLocal()
         profiles = db.query(Profile).all()
@@ -997,5 +919,83 @@ def admin_send_test(secret: str, phone: str, msg: str = "Hola, este es un mensaj
         }
         db.close()
         return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/admin/webhook-log")
+def admin_webhook_log(n: int = 10, _admin=_Depends(_verify_admin)):
+    """Show last N webhook events from Redis"""
+
+    import redis, json as _json
+    try:
+        r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+        logs = r.lrange("webhook_log", 0, n - 1)
+        return {"logs": [_json.loads(l) for l in logs]}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/admin/booking-errors")
+def admin_booking_errors(n: int = 10, _admin=_Depends(_verify_admin)):
+    """Show last N booking errors from DB"""
+
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT ts, phone, offer_id, provider, amount, error FROM booking_errors ORDER BY id DESC LIMIT :n"),
+                {"n": n}
+            )
+            errors = [dict(row._mapping) for row in result]
+            return {"errors": errors}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/admin/list-trips")
+def admin_list_trips(user_id: str = None, _admin=_Depends(_verify_admin)):
+    """List all trips, optionally filtered by user_id"""
+
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            if user_id:
+                rows = conn.execute(text("SELECT booking_reference, user_id, status, departure_city, arrival_city, departure_date, total_amount, duffel_order_id, refund_amount FROM trips WHERE user_id = :uid"), {"uid": user_id}).fetchall()
+            else:
+                rows = conn.execute(text("SELECT booking_reference, user_id, status, departure_city, arrival_city, departure_date, total_amount, duffel_order_id, refund_amount FROM trips")).fetchall()
+        return {"trips": [{"booking_ref": r[0], "user_id": r[1], "status": r[2], "origin": r[3], "dest": r[4], "date": str(r[5]), "amount": float(r[6]) if r[6] else 0, "duffel_id": r[7], "refund": float(r[8]) if r[8] else None} for r in rows]}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.delete("/admin/delete-trip/{booking_ref}")
+def admin_delete_trip(booking_ref: str, _admin=_Depends(_verify_admin)):
+    """Delete a trip record by booking_reference"""
+
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text("DELETE FROM trips WHERE booking_reference = :ref"), {"ref": booking_ref})
+            conn.commit()
+        return {"status": "ok", "deleted": result.rowcount}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/admin/send-test")
+def admin_send_test(phone: str, msg: str = "Hola, este es un mensaje de prueba del bot Biajez.", _admin=_Depends(_verify_admin)):
+    """Send a test WhatsApp message to verify API connection"""
+
+    import requests as _req
+    phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+    access_token = os.getenv("WHATSAPP_ACCESS_TOKEN")
+    if not phone_number_id or not access_token:
+        return {"status": "error", "message": "WhatsApp credentials not configured"}
+    # Normalize Mexican numbers
+    to_number = phone
+    if to_number.startswith("521") and len(to_number) == 13:
+        to_number = "52" + to_number[3:]
+    url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
+    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+    data = {"messaging_product": "whatsapp", "to": to_number, "type": "text", "text": {"body": msg}}
+    try:
+        resp = _req.post(url, json=data, headers=headers)
+        return {"status": "ok", "to": to_number, "http_status": resp.status_code, "response": resp.json()}
     except Exception as e:
         return {"status": "error", "message": str(e)}

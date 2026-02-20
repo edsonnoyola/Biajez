@@ -34,10 +34,13 @@ wheels/
 *.sqlite3
 antigravity.db
 
-# Environment variables
+# Environment variables (ALL env files except .env.example)
 .env
-.env.local
-.env.production.local
+.env.*
+!.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
 
 # IDEs
 .vscode/
@@ -74,3 +77,8 @@ create_checkpoint.sh
 token.txt
 *.token
 clear_session_debug.py
+
+# Backup files
+*.backup
+*.backup2
+*.backup_*

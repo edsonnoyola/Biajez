@@ -10,9 +10,14 @@ from app.services.whatsapp_redis import session_manager, rate_limiter
 import requests
 import os
 import json
+import hmac
+import hashlib
 from datetime import datetime, timedelta
 from app.services import profile_manager
 import re
+
+# Meta App Secret for webhook HMAC verification
+META_APP_SECRET = os.getenv("META_APP_SECRET", "")
 
 router = APIRouter()
 
@@ -181,7 +186,23 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
     Recibir mensajes de WhatsApp vía Meta API
     """
     try:
-        body = await request.json()
+        # --- HMAC Signature Verification (Meta X-Hub-Signature-256) ---
+        raw_body = await request.body()
+        if META_APP_SECRET:
+            signature_header = request.headers.get("X-Hub-Signature-256", "")
+            if not signature_header:
+                print("🚨 REJECTED: Missing X-Hub-Signature-256 header")
+                return Response(status_code=403)
+            expected = "sha256=" + hmac.new(
+                META_APP_SECRET.encode(), raw_body, hashlib.sha256
+            ).hexdigest()
+            if not hmac.compare_digest(expected, signature_header):
+                print("🚨 REJECTED: Invalid webhook signature")
+                return Response(status_code=403)
+        else:
+            print("⚠️ META_APP_SECRET not set — webhook signature verification DISABLED")
+
+        body = json.loads(raw_body)
         print(f"📱 WhatsApp webhook received: {json.dumps(body, indent=2)}")
 
         # Save to Redis for debug (last 20 webhook events)
