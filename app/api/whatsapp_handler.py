@@ -188,6 +188,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 def format_for_whatsapp(text: str, session: dict) -> str:
     """
     Format AI response for WhatsApp (add emojis, structure, flight list)
+    Shows price, time, route, airline, stops, and change/refund conditions.
     """
     # If there are pending flights, add numbered list
     if session.get("pending_flights"):
@@ -195,19 +196,51 @@ def format_for_whatsapp(text: str, session: dict) -> str:
         flight_list = "\n\n✈️ *Vuelos encontrados:*\n"
         for i, flight in enumerate(flights, 1):
             price = flight.get("price", "N/A")
+            currency = flight.get("currency", "USD")
             segments = flight.get("segments", [])
             if segments:
                 seg = segments[0]
-                time = seg.get("departure_time", "")[:5]
+                time_raw = seg.get("departure_time", "")
+                time = time_raw[11:16] if len(time_raw) > 16 else time_raw[:5]
                 origin = seg.get("departure_iata", "")
                 dest = seg.get("arrival_iata", "")
-                flight_list += f"\n{i}. ${price} - {time} ({origin}→{dest})"
-        
+                carrier = seg.get("carrier_code", "")
+                flight_num = seg.get("flight_number", "")
+
+                # Stops indicator
+                num_segments = len(segments)
+                stops = "Directo" if num_segments == 1 else f"{num_segments - 1} escala{'s' if num_segments > 2 else ''}"
+
+                # Change/refund conditions from Duffel docs
+                metadata = flight.get("metadata") or {}
+                refundable = flight.get("refundable", False)
+                changeable = metadata.get("changeable", False)
+                change_penalty = metadata.get("change_penalty")
+
+                # Build conditions tag (compact for WhatsApp)
+                conditions = []
+                if changeable:
+                    if change_penalty and float(change_penalty) > 0:
+                        conditions.append(f"Cambio: ${change_penalty}")
+                    else:
+                        conditions.append("Cambio gratis")
+                else:
+                    conditions.append("Sin cambios")
+
+                if refundable:
+                    conditions.append("Reembolsable")
+
+                cond_str = " | ".join(conditions)
+
+                flight_list += f"\n*{i}.* ${price} {currency}"
+                flight_list += f"\n   {carrier}{flight_num} {time} {origin}→{dest}"
+                flight_list += f"\n   {stops} | {cond_str}\n"
+
         text += flight_list
-        text += "\n\n_Responde con el número para reservar_"
-    
+        text += "\n_Responde con el numero para reservar_"
+
     # Add emoji to make it more friendly
     if "encontré" in text.lower() or "found" in text.lower():
         text = "🔍 " + text
-    
+
     return text
