@@ -306,6 +306,8 @@ class BookingOrchestrator:
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
             "Duffel-Version": "v2"
         }
         
@@ -391,11 +393,11 @@ class BookingOrchestrator:
                 "quantity": 1
             })
         
-        # Fetch the offer's exact total from Duffel to avoid payment mismatch
+        # Re-fetch offer to get latest price before booking (per Duffel docs)
         try:
             offer_resp = requests.get(
                 f"https://api.duffel.com/air/offers/{real_offer_id}",
-                headers=headers
+                headers={**headers, "Content-Type": "application/json"}
             )
             if offer_resp.status_code == 200:
                 offer_data = offer_resp.json()["data"]
@@ -425,7 +427,7 @@ class BookingOrchestrator:
         try:
             response = requests.post(url, json=data, headers=headers)
 
-            if response.status_code != 201:
+            if response.status_code not in [200, 201]:
                  raise Exception(f"API Error: {response.text}")
                  
             order_data = response.json()["data"]
