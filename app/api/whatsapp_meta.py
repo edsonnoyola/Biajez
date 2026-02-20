@@ -752,7 +752,8 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 # Fetch order from Duffel to get current slice IDs
                 order_resp = _requests.get(f"https://api.duffel.com/air/orders/{order_id}", headers=duffel_headers)
                 if order_resp.status_code != 200:
-                    send_whatsapp_message(from_number, f"❌ Error al obtener la orden: {order_resp.text[:200]}")
+                    print(f"❌ Order fetch failed: {order_resp.status_code} - {order_resp.text[:300]}")
+                    send_whatsapp_message(from_number, "❌ No se pudo obtener la información de tu vuelo.\n\nIntenta de nuevo en unos minutos.")
                     return {"status": "ok"}
 
                 order_data = order_resp.json()["data"]
@@ -826,13 +827,9 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     elif "no_available" in error_msg or "sold_out" in error_msg:
                         send_whatsapp_message(from_number, f"❌ No hay vuelos disponibles para {new_date}. Intenta otra fecha.")
                     else:
-                        # Parse Duffel error for clean message
-                        try:
-                            err_data = change_resp.json().get("errors", [{}])[0]
-                            clean_msg = err_data.get("message", error_msg[:200])
-                            send_whatsapp_message(from_number, f"❌ Error al solicitar cambio: {clean_msg}")
-                        except Exception:
-                            send_whatsapp_message(from_number, f"❌ Error al solicitar cambio. Intenta de nuevo o contacta soporte.")
+                        # Log full error but show clean message to user
+                        print(f"❌ Change request failed: {change_resp.status_code} - {error_msg[:300]}")
+                        send_whatsapp_message(from_number, "❌ No se pudo solicitar el cambio de vuelo.\n\nIntenta de nuevo o contacta soporte.")
                     session.pop("pending_change", None)
                     session_manager.save_session(from_number, session)
                     return {"status": "ok"}
@@ -894,7 +891,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 send_whatsapp_message(from_number, response_text)
             except Exception as e:
                 print(f"❌ Flight change error: {e}")
-                send_whatsapp_message(from_number, f"❌ Error al procesar cambio: {str(e)}")
+                send_whatsapp_message(from_number, "❌ Hubo un error al procesar el cambio.\n\nIntenta de nuevo en unos minutos.")
 
             return {"status": "ok"}
 
@@ -954,9 +951,8 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     print(f"DEBUG: Confirming change {change_id} with payment: {payment_amount} {payment_currency}")
                     confirm_resp = _requests.post(confirm_url, json=confirm_payload, headers=duffel_headers)
                     if confirm_resp.status_code not in [200, 201]:
-                        error_text = confirm_resp.text[:300]
-                        print(f"❌ Change confirm failed: {error_text}")
-                        send_whatsapp_message(from_number, f"❌ Error al confirmar cambio: {error_text[:200]}")
+                        print(f"❌ Change confirm failed: {confirm_resp.status_code} - {confirm_resp.text[:300]}")
+                        send_whatsapp_message(from_number, "❌ No se pudo confirmar el cambio de vuelo.\n\nIntenta de nuevo o busca otra opción.")
                         # Clean up on failure so user isn't stuck
                         session.pop("pending_change", None)
                         session.pop("pending_change_offers", None)
@@ -1039,8 +1035,8 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
 
                     send_whatsapp_message(from_number, response_text)
                 else:
-                    error_text = resp.text[:200]
-                    send_whatsapp_message(from_number, f"❌ Error al confirmar cambio: {error_text}")
+                    print(f"❌ Change confirm alt failed: {resp.status_code} - {resp.text[:300]}")
+                    send_whatsapp_message(from_number, "❌ No se pudo confirmar el cambio de vuelo.\n\nIntenta de nuevo o busca otra opción.")
                     # Clean up on failure
                     session.pop("pending_change", None)
                     session.pop("pending_change_offers", None)
@@ -1052,7 +1048,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 session.pop("pending_change", None)
                 session.pop("pending_change_offers", None)
                 session_manager.save_session(from_number, session)
-                send_whatsapp_message(from_number, f"❌ Error: {str(e)}")
+                send_whatsapp_message(from_number, "❌ Hubo un error al cambiar tu vuelo.\n\nIntenta de nuevo en unos minutos.")
 
             return {"status": "ok"}
 
@@ -1372,7 +1368,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 
             except Exception as e:
                 print(f"❌ Hotel booking error: {e}")
-                response_text = f"❌ Error al procesar reserva: {str(e)}"
+                response_text = "❌ Hubo un error al procesar la reserva.\n\nIntenta de nuevo en unos minutos."
             
             send_whatsapp_message(from_number, response_text)
             return {"status": "ok"}
@@ -1709,13 +1705,11 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     response_text += "El administrador debe agregar fondos en Duffel."
                 elif "passenger" in error_str.lower() or "invalid" in error_str.lower():
                     response_text = "⚠️ *Error de datos*\n\n"
-                    response_text += "La aerolínea rechazó la reserva.\n"
-                    response_text += f"Detalle: {error_str[:200]}\n\n"
-                    response_text += "Si el problema persiste, escribe *registrar* para actualizar tus datos."
+                    response_text += "La aerolínea rechazó la reserva por un problema con tus datos.\n\n"
+                    response_text += "Escribe *registrar* para verificar y actualizar tu información."
                 else:
                     response_text = "❌ *Error en la reserva*\n\n"
                     response_text += "Hubo un problema procesando tu solicitud.\n"
-                    response_text += f"Detalle: {error_str[:200]}\n"
                     response_text += "Por favor intenta buscar y reservar nuevamente."
 
 
@@ -1779,7 +1773,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                 _uid = session.get("user_id", f"whatsapp_{from_number}")
                 with engine.connect() as conn:
                     _user_trips = conn.execute(
-                        text("SELECT booking_reference, departure_city, arrival_city, status FROM trips WHERE user_id = :uid AND status != 'CANCELLED' ORDER BY created_at DESC LIMIT 5"),
+                        text("SELECT booking_reference, departure_city, arrival_city, status FROM trips WHERE user_id = :uid AND status != 'CANCELLED' ORDER BY departure_date DESC NULLS LAST LIMIT 5"),
                         {"uid": _uid}
                     ).fetchall()
                 if _user_trips:
@@ -1825,7 +1819,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                         cancel_data = {"data": {"order_id": duffel_order_id}}
                         resp1 = requests.post(cancel_url, json=cancel_data, headers=duffel_headers)
 
-                        if resp1.status_code == 201:
+                        if resp1.status_code in [200, 201]:
                             cancellation = resp1.json()["data"]
                             cancellation_id = cancellation["id"]
                             refund_amount = cancellation.get("refund_amount", "0")
@@ -1835,7 +1829,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                             confirm_url = f"https://api.duffel.com/air/order_cancellations/{cancellation_id}/actions/confirm"
                             resp2 = requests.post(confirm_url, headers=duffel_headers)
 
-                            if resp2.status_code == 200:
+                            if resp2.status_code in [200, 201]:
                                 # Update DB via raw SQL
                                 with engine.connect() as conn:
                                     conn.execute(
@@ -1845,11 +1839,32 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                                     conn.commit()
                                 response_text = f"✅ Reserva {pnr} cancelada exitosamente\n\nReembolso: ${refund_amount} {refund_currency}"
                             else:
-                                response_text = f"❌ Error al confirmar cancelación: {resp2.text}"
+                                print(f"❌ Cancel confirm failed: {resp2.status_code} - {resp2.text[:300]}")
+                                response_text = f"❌ No se pudo confirmar la cancelación de {pnr}.\n\nIntenta de nuevo o contacta soporte."
                         else:
-                            response_text = f"❌ Error al cancelar en Duffel: {resp1.text}"
+                            # Parse Duffel error for user-friendly message
+                            print(f"❌ Cancel request failed: {resp1.status_code} - {resp1.text[:300]}")
+                            try:
+                                err_data = resp1.json().get("errors", [{}])
+                                err_code = err_data[0].get("code", "") if err_data else ""
+                                err_type = err_data[0].get("type", "") if err_data else ""
+                            except Exception:
+                                err_code = ""
+                                err_type = ""
+
+                            if "not_found" in err_type or resp1.status_code == 404:
+                                response_text = f"❌ No se encontró la orden para {pnr} en Duffel.\n\nEs posible que ya haya sido cancelada o que el vuelo ya paso."
+                            elif "already_cancelled" in err_code:
+                                response_text = f"ℹ️ La reserva {pnr} ya fue cancelada anteriormente."
+                                # Also update local DB
+                                with engine.connect() as conn:
+                                    conn.execute(text("UPDATE trips SET status = 'CANCELLED' WHERE booking_reference = :pnr"), {"pnr": pnr})
+                                    conn.commit()
+                            else:
+                                response_text = f"❌ No se pudo cancelar {pnr}.\n\nIntenta de nuevo en unos minutos."
                     except Exception as e:
-                        response_text = f"❌ Error: {str(e)}"
+                        print(f"❌ Cancel exception: {e}")
+                        response_text = f"❌ Hubo un error al cancelar {pnr}.\n\nIntenta de nuevo o contacta soporte."
                 else:
                     # Non-Duffel booking: just mark as cancelled in DB via raw SQL
                     with engine.connect() as conn:
@@ -2091,7 +2106,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                     
             except Exception as e:
                 print(f"❌ Hotel search error: {e}")
-                response_text = f"❌ Error al buscar hoteles: {str(e)}"
+                response_text = "❌ Hubo un error al buscar hoteles.\n\nIntenta de nuevo en unos minutos."
             
             send_whatsapp_message(from_number, response_text)
             return {"status": "ok"}
@@ -2592,7 +2607,8 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
                         response += f"Reembolso: ${quote.get('refund_amount', '0')} {quote.get('refund_currency', 'USD')}\n\n"
                         response += "Para cancelar escribe: 'cancelar " + trip.booking_reference + "'"
                     except Exception as e:
-                        response = f"No pude cotizar el reembolso: {str(e)}"
+                        print(f"❌ Refund quote error: {e}")
+                        response = "❌ No pude cotizar el reembolso.\n\nIntenta de nuevo en unos minutos."
                 else:
                     response = "No encontré el ID de la orden para cotizar."
             else:
@@ -3275,8 +3291,7 @@ _Escribe lo que necesitas en lenguaje natural_ 😊"""
             if 'from_number' in dir():
                 error_msg = "⚠️ *Error temporal*\n\n"
                 error_msg += "Hubo un problema procesando tu mensaje.\n"
-                error_msg += "Por favor intenta de nuevo en unos segundos.\n\n"
-                error_msg += f"_Error: {str(e)[:100]}_"
+                error_msg += "Por favor intenta de nuevo en unos segundos."
                 send_whatsapp_message(from_number, error_msg)
         except:
             pass  # Don't fail if we can't send the error message

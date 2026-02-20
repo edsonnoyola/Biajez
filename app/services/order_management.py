@@ -37,7 +37,7 @@ class OrderManager:
             return response.json()["data"]
         except requests.exceptions.RequestException as e:
             print(f"Error fetching order {order_id}: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to fetch order: {str(e)}")
+            raise HTTPException(status_code=500, detail="No se pudo obtener la orden")
     
     def get_cancellation_quote(self, order_id: str):
         """
@@ -69,7 +69,7 @@ class OrderManager:
             }
         except requests.exceptions.RequestException as e:
             print(f"Error getting cancellation quote for {order_id}: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to get refund quote: {str(e)}")
+            raise HTTPException(status_code=500, detail="No se pudo cotizar el reembolso")
     
     def cancel_order(self, order_id: str, user_id: str):
         """
@@ -93,10 +93,10 @@ class OrderManager:
             ).fetchone()
 
         if not row:
-            raise HTTPException(status_code=404, detail="Order not found or unauthorized")
+            raise HTTPException(status_code=404, detail="Orden no encontrada")
 
         if row[1] == "CANCELLED":
-            raise HTTPException(status_code=400, detail="Order already cancelled")
+            raise HTTPException(status_code=400, detail="Esta orden ya fue cancelada")
 
         pnr = row[0]
 
@@ -213,7 +213,7 @@ class OrderManager:
 
         except requests.exceptions.RequestException as e:
             print(f"Error confirming cancellation for {order_id}: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to cancel order: {str(e)}")
+            raise HTTPException(status_code=500, detail="No se pudo cancelar la orden")
     
     def get_user_orders(self, user_id: str):
         """

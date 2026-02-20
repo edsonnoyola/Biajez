@@ -65,7 +65,7 @@ class CheckinService:
             if checkin_time < datetime.now(dep_time.tzinfo or None):
                 return {
                     "success": False,
-                    "error": "Check-in window has already opened. Please check in manually."
+                    "error": "La ventana de check-in ya abrio. Haz check-in directamente en la aerolinea."
                 }
 
             # Check for existing auto check-in
@@ -78,7 +78,7 @@ class CheckinService:
                 return {
                     "success": True,
                     "checkin_id": existing.id,
-                    "message": "Auto check-in already scheduled",
+                    "message": "Ya tienes recordatorio de check-in programado",
                     "scheduled_time": existing.scheduled_time
                 }
 
@@ -101,7 +101,7 @@ class CheckinService:
             return {
                 "success": True,
                 "checkin_id": auto_checkin.id,
-                "message": f"Auto check-in scheduled for {checkin_time.strftime('%b %d at %H:%M')}",
+                "message": f"Recordatorio de check-in programado para {checkin_time.strftime('%d/%m %H:%M')}",
                 "scheduled_time": checkin_time.isoformat(),
                 "airline": self.SUPPORTED_AIRLINES.get(airline_code.upper(), airline_code)
             }
@@ -118,7 +118,7 @@ class CheckinService:
         trip = self.db.query(Trip).filter(Trip.booking_reference == trip_id).first()
 
         if not trip:
-            return {"success": False, "error": "Trip not found"}
+            return {"success": False, "error": "No encontré ese viaje"}
 
         auto_checkin = self.db.query(AutoCheckin).filter(
             AutoCheckin.trip_id == trip_id
@@ -219,7 +219,7 @@ class CheckinService:
         if not trip or not trip.duffel_order_id:
             return {
                 "success": False,
-                "error": "Trip not found or not a Duffel booking"
+                "error": "No encontré el viaje o no es una reserva de Duffel"
             }
 
         return await self._checkin_via_duffel(trip.duffel_order_id, checkin)
@@ -247,9 +247,10 @@ class CheckinService:
             response = requests.get(url, headers=headers)
 
             if response.status_code != 200:
+                print(f"❌ Duffel order fetch for checkin failed: {response.status_code} - {response.text[:300]}")
                 return {
                     "success": False,
-                    "error": f"Could not get order from Duffel: {response.text}"
+                    "error": "No se pudo obtener la información del vuelo desde Duffel"
                 }
 
             order_data = response.json()["data"]
@@ -257,7 +258,7 @@ class CheckinService:
             # Extract airline and booking info
             slices = order_data.get("slices", [])
             if not slices:
-                return {"success": False, "error": "No flight segments found"}
+                return {"success": False, "error": "No se encontraron segmentos de vuelo"}
 
             first_segment = slices[0].get("segments", [{}])[0]
             airline_code = first_segment.get("operating_carrier", {}).get("iata_code", checkin.airline_code)
@@ -297,14 +298,14 @@ class CheckinService:
 
             return {
                 "success": True,
-                "message": "Check-in information retrieved from Duffel",
+                "message": "Información de check-in obtenida",
                 "order_id": order_id,
                 "booking_reference": booking_reference,
                 "airline": airline_code,
                 "checkin_url": checkin_url,
                 "seat_assignments": seat_assignments,
                 "passengers": [p.get("given_name", "") + " " + p.get("family_name", "") for p in passengers],
-                "note": f"Use PNR {booking_reference} to complete check-in at {checkin_url}"
+                "note": f"Usa tu PNR {booking_reference} para hacer check-in en {checkin_url}"
             }
 
         except Exception as e:
@@ -356,8 +357,8 @@ class CheckinService:
             id=f"not_{str(uuid.uuid4())[:20]}",
             user_id=checkin.user_id,
             type="checkin_failed",
-            title="Check-in Failed",
-            message=f"Could not check in for flight {checkin.pnr}. Please check in manually.",
+            title="Check-in no disponible",
+            message=f"No se pudo hacer check-in para {checkin.pnr}. Hazlo directamente en la aerolínea.",
             read=0,
             action_required=1,
             created_at=datetime.utcnow().isoformat()
@@ -366,12 +367,32 @@ class CheckinService:
         self.db.add(notification)
         self.db.commit()
 
+        print(f"❌ Check-in failed for {checkin.pnr}: {error}")
+
         profile = self.db.query(Profile).filter(Profile.user_id == checkin.user_id).first()
         if profile and profile.phone_number:
             push_service = PushNotificationService()
+
+            # Build airline check-in URL if available
+            airline_checkin_urls = {
+                "AM": "https://aeromexico.com/es-mx/check-in",
+                "AA": "https://www.aa.com/reservation/flightCheckInViewReservationsAccess.do",
+                "UA": "https://www.united.com/en/us/checkin",
+                "DL": "https://www.delta.com/mytrips/",
+                "BA": "https://www.britishairways.com/travel/olcilandingpagealiast/public/en_gb",
+                "IB": "https://www.iberia.com/es/check-in/",
+            }
+            checkin_url = airline_checkin_urls.get(checkin.airline_code.upper(), "")
+
+            msg = f"⚠️ No pudimos hacer check-in automático para *{checkin.pnr}*.\n\n"
+            msg += "Haz check-in directamente en la aerolínea:\n"
+            if checkin_url:
+                msg += f"{checkin_url}\n"
+            msg += f"\nUsa tu PNR: *{checkin.pnr}*"
+
             await push_service.send_message(
                 phone_number=profile.phone_number,
-                message=f"Could not auto check-in for flight {checkin.pnr}.\n\nPlease check in manually at the airline website.\n\nError: {error}"
+                message=msg
             )
 
     def format_status_for_whatsapp(self, status: Dict) -> str:
