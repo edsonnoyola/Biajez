@@ -1709,8 +1709,18 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                 return {"status": "ok"}
 
         if incoming_msg.lower() in ['si', 'sí', 'yes', 'confirmar'] and session.get("selected_flight"):
-            # Prevent double-booking: check if already processing
-            if session.get("booking_in_progress"):
+            # Prevent double-booking: atomic Redis lock (race-condition safe)
+            booking_lock_key = f"booking_lock:{from_number}"
+            lock_acquired = False
+            if session_manager.enabled:
+                try:
+                    lock_acquired = session_manager.redis_client.set(booking_lock_key, "1", nx=True, ex=120)  # 2 min TTL
+                except Exception:
+                    lock_acquired = True  # Fail open if Redis is down
+            else:
+                lock_acquired = not session.get("booking_in_progress")
+
+            if not lock_acquired:
                 send_whatsapp_message(from_number, "⏳ Ya estamos procesando tu reserva. Espera un momento.")
                 return {"status": "ok"}
             session["booking_in_progress"] = True
@@ -2073,16 +2083,24 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                     response_text += "Por favor intenta buscar y reservar nuevamente."
 
 
-            # Always clear booking lock before responding
+            # Always clear booking lock before responding (both session + Redis)
             session.pop("booking_in_progress", None)
             session_manager.save_session(from_number, session)
+            try:
+                if session_manager.enabled:
+                    session_manager.redis_client.delete(f"booking_lock:{from_number}")
+            except Exception:
+                pass
 
             # For Duffel bookings, show post-booking action buttons
-            if provider and provider.upper() == "DUFFEL" and session.get("last_booking", {}).get("duffel_order_id"):
-                send_interactive_message(from_number, response_text,
-                    ["Elegir asiento", "Agregar maleta", "Ver itinerario"])
-            else:
-                send_whatsapp_message(from_number, response_text)
+            try:
+                if provider and provider.upper() == "DUFFEL" and session.get("last_booking", {}).get("duffel_order_id"):
+                    send_interactive_message(from_number, response_text,
+                        ["Elegir asiento", "Agregar maleta", "Ver itinerario"])
+                else:
+                    send_whatsapp_message(from_number, response_text)
+            except Exception as send_err:
+                print(f"⚠️ Failed to send booking response: {send_err}")
             return {"status": "ok"}
 
         # Command handlers
@@ -2216,11 +2234,12 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                                     print(f"🚨 CRITICAL: Duffel cancelled {pnr} but DB update failed after 3 attempts!")
                                     response_text = f"✅ Reserva {pnr} cancelada en la aerolínea\n\nReembolso: ${refund_amount} {refund_currency}\n\n⚠️ Hubo un problema actualizando tu historial. Contacta soporte si ves inconsistencias."
                             else:
-                                print(f"❌ Cancel confirm failed: {resp2.status_code} - {resp2.text[:300]}")
-                                response_text = f"❌ No se pudo confirmar la cancelación de {pnr}.\n\nIntenta de nuevo o contacta soporte."
+                                print(f"❌ Cancel confirm failed: {resp2.status_code}")
+                                # Cancellation was requested but not confirmed — warn user
+                                response_text = f"⚠️ La cancelación de {pnr} está pendiente.\n\nLa aerolínea recibió la solicitud pero no se confirmó.\nIntenta de nuevo en unos minutos."
                         else:
                             # Parse Duffel error for user-friendly message
-                            print(f"❌ Cancel request failed: {resp1.status_code} - {resp1.text[:300]}")
+                            print(f"❌ Cancel request failed: {resp1.status_code}")
                             try:
                                 err_data = resp1.json().get("errors", [{}])
                                 err_code = err_data[0].get("code", "") if err_data else ""
@@ -3178,12 +3197,16 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                 "title": "mr" if str(row[5]).lower() in ['m', 'male', 'masculino'] else "ms"
             }]
 
-            result = await hold_service.create_hold_order(offer_id, passengers)
+            try:
+                result = await hold_service.create_hold_order(offer_id, passengers)
+            except Exception as hold_err:
+                print(f"❌ Hold order creation exception: {hold_err}")
+                result = {"success": False, "error": "No se pudo apartar el vuelo. Intenta de nuevo."}
 
-            if result.get("success"):
+            if result.get("success") and result.get("order_id"):
                 # Save held order in session
                 session["held_order"] = {
-                    "order_id": result["order_id"],
+                    "order_id": result.get("order_id"),
                     "pnr": result.get("booking_reference"),
                     "amount": result.get("total_amount"),
                     "currency": result.get("total_currency"),
@@ -3208,7 +3231,7 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
                             "arr": arr_city,
                             "date": dep_date,
                             "amt": float(result.get("total_amount", 0)),
-                            "oid": result["order_id"]
+                            "oid": result.get("order_id", "")
                         })
                         conn.commit()
                 except Exception as db_err:

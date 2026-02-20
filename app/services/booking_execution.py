@@ -517,7 +517,13 @@ class BookingOrchestrator:
             data["data"]["services"] = services
 
         try:
-            response = _duffel_request_with_retry("POST", url, headers, json=data, timeout=30)
+            # Add idempotency key to prevent duplicate bookings on retry
+            import hashlib
+            idem_source = f"{profile.user_id}:{real_offer_id}:{duffel_amount}"
+            idem_key = hashlib.sha256(idem_source.encode()).hexdigest()[:40]
+            booking_headers = {**headers, "Idempotency-Key": idem_key}
+
+            response = _duffel_request_with_retry("POST", url, booking_headers, json=data, timeout=30)
 
             if response.status_code not in [200, 201]:
                  print(f"❌ Duffel booking API error: {response.status_code}")
@@ -594,8 +600,30 @@ class BookingOrchestrator:
             )
             if not db_saved:
                 print(f"🚨 CRITICAL: Duffel booking {pnr} (order {ticket_number}) succeeded but DB save failed!")
-            
-            
+                # Escalate: alert admin via WhatsApp
+                try:
+                    admin_phone = os.getenv("ADMIN_PHONE")
+                    if admin_phone:
+                        from app.services.push_notification_service import PushNotificationService
+                        import asyncio
+                        _push = PushNotificationService()
+                        _alert = (
+                            f"🚨 *DB SAVE FAILED*\n\n"
+                            f"PNR: {pnr}\nOrder: {ticket_number}\n"
+                            f"User: {profile.user_id}\nAmount: {amount}\n\n"
+                            f"Booking en Duffel pero NO en DB!"
+                        )
+                        try:
+                            _loop = asyncio.get_event_loop()
+                            if _loop.is_running():
+                                asyncio.ensure_future(_push.send_message(admin_phone, _alert))
+                            else:
+                                _loop.run_until_complete(_push.send_message(admin_phone, _alert))
+                        except RuntimeError:
+                            pass
+                except Exception:
+                    pass  # Alert is best-effort, Redis backup already has the data
+
             # Generate HTML Ticket with REAL Duffel data
             from app.services.ticket_generator import TicketGenerator
             
