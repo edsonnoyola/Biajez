@@ -222,6 +222,18 @@ HOTELES - Igual de flexible:
 - "5 estrellas" → filtrar premium
 - "con alberca/pool" → mencionar amenities
 
+CONFIRMACIÓN DE RESERVA:
+- Después de reservar exitosamente, SIEMPRE muestra al usuario:
+  • El PNR (referencia de reserva)
+  • El monto total cobrado
+  • El número de ticket/e-ticket si está disponible
+  • Ejemplo: "¡Reserva confirmada! Tu PNR es: ABC123. Total: $150.00 USD."
+- Si la reserva falla, explica el error claramente.
+
+MONTO DE RESERVA:
+- Cuando llames book_flight_final, DEBES pasar el precio exacto de los resultados de búsqueda.
+- NUNCA adivines el monto. Usa exactamente lo que aparece en la lista de vuelos.
+
 NUNCA:
 - Pedir formato específico de fecha
 - Hacer más de 1 pregunta a la vez
@@ -288,13 +300,15 @@ CADENAS HOTELES: Marriott(Ritz,W,Westin,Sheraton), Hilton(DoubleTree,Conrad,Wald
                 "type": "function",
                 "function": {
                     "name": "book_flight_final",
-                    "description": "Execute the final booking for a selected flight offer.",
+                    "description": "Execute the final booking for a selected flight offer. IMPORTANT: After booking, always tell the user the PNR (booking reference), total amount charged, and ticket number from the result.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "offer_id": {"type": "string", "description": "The unique ID of the flight offer to book"}
+                            "offer_id": {"type": "string", "description": "The unique ID of the flight offer to book (e.g. DUFFEL::off_xxx::pas_xxx)"},
+                            "amount": {"type": "number", "description": "The total price of the flight in the currency shown. MUST match exactly what was shown in search results."},
+                            "currency": {"type": "string", "description": "Currency code (e.g. USD, MXN)", "default": "USD"}
                         },
-                        "required": ["offer_id"]
+                        "required": ["offer_id", "amount"]
                     }
                 }
             },
