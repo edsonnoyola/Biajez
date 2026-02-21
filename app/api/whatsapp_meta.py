@@ -444,6 +444,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 welcome += "_\"vuelo de Panamá a Miami el 15 de marzo\"_\n\n"
                 welcome += "_(Te pido tus datos solo cuando reserves)_"
                 send_interactive_message(from_number, welcome, ["Buscar vuelo", "Ayuda", "Registrarme"])
+                return {"status": "ok"}
 
             session["user_id"] = user_id
             session_manager.save_session(from_number, session)
