@@ -138,28 +138,69 @@ if resp.status_code not in [200, 201]:
 ```
 
 ## Seguridad
-- **ALLOWED_PHONES** env var: lista de teléfonos autorizados (comma-separated)
+
+### Whitelist de teléfonos
+- **ALLOWED_PHONES** env var: lista de teléfonos autorizados (comma-separated, solo dígitos)
 - Si está vacío, TODOS pueden usar el bot (solo para desarrollo)
 - En producción SIEMPRE poner los números autorizados
-- Formato: `ALLOWED_PHONES=5215512345678,5215598765432`
+- Formato: `ALLOWED_PHONES=5215512345678,18098601748,50250196479`
 - Match flexible: soporta variantes de código de país (521 vs 52)
+- 10 números activos (2 admin + 8 beta testers)
 
-## Environment Variables
+### HMAC Webhook Verification
+- WhatsApp webhook verifica firma `X-Hub-Signature-256` con `META_APP_SECRET`
+- Duffel webhook verifica firma en `webhooks.py`
+- Si no hay META_APP_SECRET configurado, se loguea warning pero acepta (dev mode)
+
+### Rate Limiting (SlowAPI)
+- Global: 60 req/min por IP en todos los endpoints
+- `/health`, `/`: 30 req/min
+- `/ticket/{pnr}`: 20 req/min
+- WhatsApp mensajes: 10 msg/60s por teléfono (Redis)
+- Respuesta 429 cuando se excede
+
+### Request Body Size Limit
+- Middleware rechaza payloads >10 MB (HTTP 413)
+
+### Security Headers
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `X-XSS-Protection: 1; mode=block`
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+
+### CORS
+- Bloqueado a `CORS_ORIGINS` env var (comma-separated)
+- Fallback: solo localhost en desarrollo
+
+### Admin Auth
+- Bearer token via `Authorization: Bearer {ADMIN_SECRET}`
+- Protege: `/admin/*`, `/scheduler/status`
+- Legacy: `?secret=` query param (deprecated)
+
+### Anti-Enumeración Tickets
+- `/ticket/{pnr}?t={token}` requiere HMAC token SHA256(ADMIN_SECRET:PNR)[:16]
+- Sin token válido → 403
+
+## Environment Variables (Render)
 ```
+ADMIN_PHONE              # Teléfono admin para notificaciones
+ADMIN_SECRET             # Token admin para endpoints protegidos
 ALLOWED_PHONES           # Teléfonos autorizados (comma-separated, IMPORTANTE)
+AMADEUS_CLIENT_ID        # Amadeus búsqueda alternativa
+AMADEUS_CLIENT_SECRET    # Amadeus búsqueda alternativa
+BASE_URL                 # https://biajez-d08x.onrender.com
+CORS_ORIGINS             # https://biajez-d08x.onrender.com
+DATABASE_URL             # PostgreSQL (Render)
 DUFFEL_ACCESS_TOKEN      # Duffel API (vuelos + hoteles)
+LITEAPI_API_KEY          # Hoteles alternativa
+META_APP_SECRET          # Facebook App Secret (HMAC webhook verification)
 OPENAI_API_KEY           # GPT-4o
+REDIS_URL                # Redis sessions
+RESEND_API_KEY           # Emails
 WHATSAPP_ACCESS_TOKEN    # Meta WhatsApp Business API
 WHATSAPP_PHONE_NUMBER_ID # Meta phone number ID
 WHATSAPP_VERIFY_TOKEN    # Webhook verification
-DATABASE_URL             # PostgreSQL (Render)
-REDIS_URL                # Redis sessions
-STRIPE_SECRET_KEY        # Pagos
-RESEND_API_KEY           # Emails
-AMADEUS_API_KEY          # Busqueda alternativa
-AMADEUS_API_SECRET       # Busqueda alternativa
-LITEAPI_API_KEY          # Hoteles alternativa
-BASE_URL                 # https://biajez-d08x.onrender.com
 ```
 
 ## Scheduler (cron jobs)
