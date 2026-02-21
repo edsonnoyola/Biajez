@@ -224,6 +224,20 @@ Campos editables post-registro: `cambiar asiento ventana`, `cambiar clase busine
 
 Al reservar, booking_execution.py envía a Duffel: pasaporte, KTN, loyalty programs (match por aerolínea), datos personales.
 
+## Manejo de mensajes no-texto (WhatsApp)
+- **Audio/voz:** Responde pidiendo que escriban (no hay STT aún)
+- **Imagen/foto:** Responde pidiendo que describan por texto
+- **Sticker:** Responde amigable + ofrece ayuda
+- **Ubicación:** Pide que escriban el nombre de la ciudad
+- **Documento:** Responde que no puede abrir archivos
+- **Cualquier otro tipo:** Responde pidiendo texto
+- Todos incluyen hint: _"Escribe *ayuda* para ver qué puedo hacer"_
+
+## Mensajes del sistema
+- **Beta privada (bloqueado):** Mensaje amigable presentando a Bia + "escríbele a mi creador"
+- **Rate limit:** "Dame un momento..." (10 msg/60s por teléfono)
+- **Error genérico:** Incluye hint de "escribe *ayuda*"
+
 ## Notas importantes
 - Tickets HTML se guardan en DB (ticket_html column en trips) + cache en memoria
 - Hotel booking via WhatsApp usa flujo completo Duffel Stays (search > rates > quote > book)
