@@ -419,18 +419,18 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                             break
 
             if not user_id:
-                # New user — create ID and start registration automatically
+                # New user — create ID but DON'T force registration
                 user_id = f"whatsapp_{from_number}"
                 print(f"📱 New WhatsApp user (no profile found): {user_id}")
 
                 session["user_id"] = user_id
                 session_manager.save_session(from_number, session)
 
-                # Auto-start registration for new users
+                # Create minimal profile (NO registration_step = user can browse freely)
                 from app.db.database import engine as reg_engine
                 sql = """INSERT INTO profiles (user_id, phone_number, legal_first_name, legal_last_name,
                          gender, dob, passport_number, passport_expiry, passport_country, registration_step)
-                         VALUES (:user_id, :phone, '', '', 'M', '1990-01-01', '', '2030-01-01', 'XX', 'nombre')"""
+                         VALUES (:user_id, :phone, '', '', 'M', '1990-01-01', '', '2030-01-01', 'XX', NULL)"""
                 try:
                     with reg_engine.connect() as conn:
                         conn.execute(text(sql), {"user_id": user_id, "phone": from_number})
@@ -438,14 +438,12 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 except Exception as e:
                     print(f"⚠️ Could not auto-create profile (may already exist): {e}")
 
-                welcome = "👋 *¡Bienvenido a Biajez!*\n\n"
-                welcome += "Soy tu asistente de viajes por WhatsApp ✈️\n\n"
-                welcome += "Para reservar vuelos necesito algunos datos.\n\n"
-                welcome += "📛 *Paso 1/9:* ¿Cuál es tu *nombre completo* como aparece en tu identificación?\n\n"
-                welcome += "_Ejemplo: Juan Carlos Pérez García_\n\n"
-                welcome += "_(Escribe *cancelar* en cualquier momento para salir)_"
-                send_whatsapp_message(from_number, welcome)
-                return {"status": "ok"}
+                welcome = "👋 *¡Hola! Soy Bia*, tu agente de viajes por WhatsApp ✈️\n\n"
+                welcome += "Busco vuelos baratos y reservo por ti.\n\n"
+                welcome += "Prueba ahora:\n"
+                welcome += "_\"vuelo de Panamá a Miami el 15 de marzo\"_\n\n"
+                welcome += "_(Te pido tus datos solo cuando reserves)_"
+                send_interactive_message(from_number, welcome, ["Buscar vuelo", "Ayuda", "Registrarme"])
 
             session["user_id"] = user_id
             session_manager.save_session(from_number, session)
@@ -719,54 +717,36 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         # FIN HANDLER DE REGISTRO PRIORITARIO
         # ============================================
 
+        # ===== INSTANT GREETINGS (no AI call needed) =====
+        if incoming_msg.lower().strip() in ["hola", "hi", "hello", "hey", "buenos dias", "buenos días", "buenas tardes", "buenas noches", "buenas", "ola", "que tal", "qué tal"]:
+            greeting = "👋 *¡Hola!* Soy Bia, tu agente de viajes ✈️\n\n"
+            greeting += "Dime a dónde quieres ir, por ejemplo:\n"
+            greeting += "_\"vuelo de Panamá a Miami el 15 de marzo\"_"
+            send_interactive_message(from_number, greeting, ["Buscar vuelo", "Mis viajes", "Ayuda"])
+            return {"status": "ok"}
+
         # ===== HELP COMMAND =====
         if incoming_msg.lower() in ["ayuda", "help", "que puedes hacer", "qué puedes hacer", "comandos", "menu", "menú"]:
-            help_text = """*Biajez - Tu Asistente de Viajes* ✈️
+            help_text = """*¿Qué puedo hacer?* ✈️
 
-*BUSCAR Y RESERVAR*
-✈️ _vuelo cdmx a cancun 15 marzo_
-🏨 _hotel en cancun del 15 al 18_
+*Buscar:*
+_"vuelo cdmx a cancun 15 marzo"_
+_"hotel en cancun del 15 al 18"_
 
-*MIS VIAJES*
-📋 mis viajes — ver reservas activas
-📖 historial — viajes pasados
-📄 itinerario — detalle del próximo
-❌ cancelar vuelo — cancelar reserva
-🔄 cambiar vuelo — cambiar fecha/ruta
+*Mis reservas:*
+_"mis viajes"_ · _"itinerario"_ · _"cancelar vuelo"_
 
-*DESPUÉS DE RESERVAR*
-🧳 equipaje — agregar maletas
-💺 asientos — elegir lugar
-🍽️ servicios — comidas, WiFi, extras
-✅ checkin — ver estado de check-in
-⏰ auto checkin — recordatorio 24h antes
+*Post-reserva:*
+_"equipaje"_ · _"asientos"_ · _"checkin"_
 
-*MILLAS Y CRÉDITOS*
-🎖️ millas — ver programas registrados
-➕ _agregar millas AM 123456_
-➖ _eliminar millas AM_
-💳 creditos — créditos por cancelaciones
+*Extras:*
+_"clima cancun"_ · _"visa US"_ · _"alertas"_
 
-*ALERTAS DE PRECIO*
-🔔 alertas — ver mis alertas
-📉 _crear alerta_ (después de buscar)
+*Cuenta:*
+_"perfil"_ · _"registrar"_ · _"reset"_
 
-*HERRAMIENTAS*
-🌤️ _clima cancun_
-💱 _cambio USD_
-📡 _estado vuelo AM123_
-🛂 _visa US_
-
-*MI CUENTA*
-👤 perfil — ver mis datos
-✏️ _cambiar asiento ventana_
-✏️ _cambiar clase business_
-✏️ _cambiar aerolinea AM_
-✏️ _cambiar ktn 12345678_
-🔄 reset — reiniciar sesión
-
-_También puedes escribir lo que necesites en tus palabras_ 😊"""
-            send_whatsapp_message(from_number, help_text)
+Escríbeme lo que necesites en tus palabras 😊"""
+            send_interactive_message(from_number, help_text, ["Buscar vuelo", "Mis viajes", "Mi perfil"])
             return {"status": "ok"}
         
         # ===== PROFILE COMMANDS =====
