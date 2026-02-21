@@ -297,8 +297,24 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 incoming_msg = button_title  # Use button text directly
         elif message_type == "text":
             incoming_msg = message.get("text", {}).get("body", "")
+        elif message_type == "audio":
+            send_whatsapp_message(from_number, "🎤 Recibí tu audio, pero aún no puedo escuchar mensajes de voz.\n\nPor favor escríbeme lo que necesitas. 😊\n\n_Escribe *ayuda* para ver qué puedo hacer._")
+            return {"status": "ok"}
+        elif message_type == "image":
+            send_whatsapp_message(from_number, "📷 Recibí tu imagen, pero aún no puedo ver fotos.\n\nDescríbeme lo que necesitas por texto. 😊\n\n_Escribe *ayuda* para ver qué puedo hacer._")
+            return {"status": "ok"}
+        elif message_type == "sticker":
+            send_whatsapp_message(from_number, "😊 ¡Bonito sticker!\n\n¿En qué te puedo ayudar? Escribe *ayuda* para ver mis comandos.")
+            return {"status": "ok"}
+        elif message_type == "location":
+            send_whatsapp_message(from_number, "📍 Recibí tu ubicación, pero aún no la puedo procesar.\n\nEscribe el nombre de la ciudad, por ejemplo:\n_\"vuelo de Panamá a Miami el 15 de marzo\"_")
+            return {"status": "ok"}
+        elif message_type == "document":
+            send_whatsapp_message(from_number, "📄 Recibí tu documento, pero aún no puedo abrir archivos.\n\nEscríbeme lo que necesitas. 😊\n\n_Escribe *ayuda* para ver qué puedo hacer._")
+            return {"status": "ok"}
         else:
-            return {"status": "ok"}  # Ignore other message types
+            send_whatsapp_message(from_number, "No pude procesar ese tipo de mensaje.\n\nEscríbeme un texto con lo que necesitas. 😊\n\n_Escribe *ayuda* para ver qué puedo hacer._")
+            return {"status": "ok"}
         
         print(f"📱 WhatsApp from {from_number}: {incoming_msg}")
 
@@ -321,7 +337,10 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     break
             if not is_allowed:
                 print(f"🚫 BLOCKED: {from_number} (normalized: {normalized_from}) not in ALLOWED_PHONES: {allowed_phones}")
-                send_whatsapp_message(from_number, "⚠️ Este servicio está en beta privada.\n\nContacta al administrador para obtener acceso.")
+                block_msg = "👋 ¡Hola! Soy *Bia*, tu agente de viajes por WhatsApp.\n\n"
+                block_msg += "Ahora mismo estoy en *beta privada* con un grupo pequeño de viajeros.\n\n"
+                block_msg += "Si quieres acceso, escríbele a mi creador y te agrega. ✈️"
+                send_whatsapp_message(from_number, block_msg)
                 return {"status": "blocked"}
 
         # ===== RATE LIMITING =====
@@ -3756,7 +3775,8 @@ _También puedes escribir lo que necesites en tus palabras_ 😊"""
             if 'from_number' in dir():
                 error_msg = "⚠️ *Error temporal*\n\n"
                 error_msg += "Hubo un problema procesando tu mensaje.\n"
-                error_msg += "Por favor intenta de nuevo en unos segundos."
+                error_msg += "Por favor intenta de nuevo en unos segundos.\n\n"
+                error_msg += "_Escribe *ayuda* para ver qué puedo hacer._"
                 send_whatsapp_message(from_number, error_msg)
         except:
             pass  # Don't fail if we can't send the error message
