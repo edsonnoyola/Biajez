@@ -155,12 +155,14 @@ async def register_duffel_webhook(
         base_url = os.getenv("BASE_URL", "https://biajez.onrender.com")
         webhook_url = f"{base_url}/webhooks/duffel"
 
-    # All available Duffel event types
+    # Duffel valid event types (from API docs)
     events = [
         "order.created",
         "order.creation_failed",
         "order.airline_initiated_change_detected",
-        "order.updated",
+        "air.order.changed",
+        "order_cancellation.created",
+        "order_cancellation.confirmed",
         "payment.created",
     ]
 
